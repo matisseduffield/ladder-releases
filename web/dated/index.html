@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#E8ECE5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E1412" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="../manifest.json">
+<link rel="apple-touch-icon" sizes="180x180" href="../icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Dailies">
+<meta name="description" content="Dated: put each event in its place on the timeline, without seeing the years. A new game every day.">
+<title>Dated</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect x=%223%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2212.2%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2221.4%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%223%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2212.2%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23F4C52E%22/><rect x=%2221.4%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%223%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%2212.2%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%2221.4%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/></svg>">
+<link rel="preload" href="../fonts/hanken-grotesk-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../shared.css">
+<style>
+/* The card being placed is the slug's yellow, so it's the one thing to look at. */
+:root { --card: #F4C52E; --on-card: #14211C; --wrong: color-mix(in srgb, var(--neg) 13%, var(--surface)); }
+
+/* The timeline: one list that scrolls by itself, oldest at the top. Rows sit on the
+   track by transform, so a card really slides to its place. */
+.stage-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
+.line { flex: 1; min-width: 0; padding-top: 8px; overflow: hidden auto; overscroll-behavior: contain; scrollbar-width: none; touch-action: pan-y; }
+.line::-webkit-scrollbar { display: none; }
+.track { --row: 46px; --gap: 14px; --end: 34px; position: relative; user-select: none; -webkit-user-select: none; transition: height .26s ease; }
+.row {
+  position: absolute; top: 0; left: 0; right: 0; height: var(--row);
+  display: grid; grid-template-columns: 50px 1fr; align-items: center; gap: 8px; padding: 0 10px;
+  background: var(--surface); border-radius: 8px; pointer-events: none;
+  transform: translate(var(--x, 0), var(--y, 0));
+  transition: transform .34s cubic-bezier(.3, .7, .25, 1), background-color .3s ease, opacity .3s ease;
+}
+.row b { font-size: 1.02rem; font-weight: 600; letter-spacing: -.01em; transition: color .25s ease; }
+.row span { font-size: .84rem; line-height: 1.24; }
+.row.right b { color: var(--pos); }
+.row.wrong { background: var(--wrong); }
+.row.wrong b { color: var(--neg); }
+.row.unseen { background: var(--key); }
+.row.unseen b { color: var(--muted); }
+.row.moving { z-index: 1; }
+.row.bump { animation: shake .32s; }
+.row.fresh { opacity: 0; }
+.track.still, .track.still .row, .track.still .slot { transition: none; }
+@keyframes shake { 20%, 60% { translate: -4px 0; } 40%, 80% { translate: 4px 0; } }
+
+/* A slot is the gap between two rows. The bar shows it, and the tap target runs to
+   the middle of the rows either side, so anywhere on the list lands in a slot. */
+.slot {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 2; height: var(--gap); padding: 0;
+  display: grid; place-items: center; background: none; border: 0; border-radius: 4px; touch-action: pan-y;
+  transform: translateY(var(--y, 0));
+  transition: transform .34s cubic-bezier(.3, .7, .25, 1);
+}
+.slot::before { content: ""; width: 100%; height: 4px; border-radius: 2px; background: var(--line); transition: background-color .12s, height .12s; }
+.slot::after { content: ""; position: absolute; left: 0; right: 0; top: calc(var(--row) / -2); bottom: calc(var(--row) / -2); }
+.slot.end { height: var(--end); font-size: .78rem; font-weight: 600; color: var(--muted); }
+.slot.end::before { display: none; }
+.slot.end.first::after { top: 0; }
+.slot.end.last::after { bottom: 0; }
+.slot.end span { display: grid; place-items: center; width: 100%; height: calc(var(--end) - 8px); border-radius: 6px; background: var(--key); transition: background-color .12s, color .12s; }
+.slot.end.first span { margin-bottom: 8px; }
+.slot.end.last span { margin-top: 8px; }
+.slot.on::before, .slot:active::before { background: var(--accent); height: 6px; }
+.slot.end.on span, .slot.end:active span { background: var(--accent); color: var(--on-ink); }
+@media (hover: hover) {
+  .slot:hover::before { background: var(--accent); height: 6px; }
+  .slot.end:hover span { background: var(--accent); color: var(--on-ink); }
+}
+.slot.new { transition: none; }
+.track.closed .slot { display: none; }
+
+/* Lives and the count; a message takes their place, then gives it back */
+.tools { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; }
+.lives { display: flex; gap: 6px; }
+.lives i { width: 14px; height: 14px; border-radius: 50%; background: var(--neg); transition: background-color .35s ease, transform .35s ease; }
+.lives i.lost { background: var(--key); transform: scale(.72); }
+.note { font-size: .86rem; color: var(--muted); white-space: nowrap; }
+.note b { font-weight: 600; color: var(--ink); }
+.toast { top: 0; bottom: 0; left: 68px; right: 0; display: flex; align-items: center; justify-content: flex-end; padding: 0; transform: none; }
+.toast.show { transform: none; }
+
+/* The card to place */
+.deal {
+  position: relative; z-index: 5; display: flex; align-items: center; min-height: 78px; padding: 10px 16px; margin-bottom: 4px;
+  background: var(--card); color: var(--on-card); border-radius: 10px;
+  font-size: 1.04rem; font-weight: 600; line-height: 1.26;
+  touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none;
+  transform: translate(var(--dx, 0), var(--dy, 0)) scale(var(--s, 1));
+  transition: transform .22s cubic-bezier(.3, .7, .25, 1), opacity .16s ease;
+}
+.deal.dragging { --s: .94; cursor: grabbing; transition: none; }
+.deal.gone { opacity: 0; transition: none; pointer-events: none; }
+.deal.new { animation: rise .2s ease-out; }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+
+/* The worked example in How to play */
+.example { display: grid; gap: 8px; padding: 12px 14px; background: var(--bg); border-radius: 10px; font-size: .94rem; }
+.mini { display: grid; grid-template-columns: 44px 1fr; align-items: center; gap: 6px; padding: 7px 10px; background: var(--surface); border-radius: 7px; font-size: .86rem; line-height: 1.25; }
+.mini b { font-weight: 600; }
+.mini.card { grid-template-columns: 1fr; background: var(--card); color: var(--on-card); font-weight: 600; }
+.mini.wrong { background: var(--wrong); }
+.mini.wrong b { color: var(--neg); }
+
+/* Short phones: tighter rows, and the result leaves the list more room */
+@media (max-height: 640px) {
+  .track { --row: 42px; --gap: 10px; --end: 30px; }
+  .deal { min-height: 66px; padding: 8px 14px; font-size: .98rem; }
+  .tools { min-height: 30px; }
+  .result { gap: 8px; padding: 10px 12px; }
+  .result-title { font-size: 1.2rem; }
+  .result .btn { min-height: 44px; }
+  .next { min-height: 24px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row, .slot, .track, .deal, .lives i { transition: none; }
+  .row.bump, .deal.new { animation: none; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="top">
+      <a class="brand" href="../index.html" aria-label="All games">
+        <svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 2 8l6 6"/></svg>
+        <svg width="30" height="30" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#6A48C8"/><rect x="8" y="9" width="40" height="13" rx="3" fill="#FFFFFF"/><text x="28" y="19.2" font-size="10.5" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#1D7548">1958</text><rect x="16" y="25.5" width="40" height="13" rx="3" fill="#FFCF33"/><text x="36" y="35.7" font-size="10.5" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">????</text><rect x="8" y="42" width="40" height="13" rx="3" fill="#FFFFFF"/><text x="28" y="52.2" font-size="10.5" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#1D7548">1984</text></svg>
+        <h1 class="mark">Dated</h1>
+      </a>
+      <div class="top-right">
+        <button class="icon-btn" id="statsBtn" type="button" aria-label="Stats">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 16.5V11M10 16.5V4M16 16.5V8"/></svg>
+        </button>
+        <button class="icon-btn" id="helpBtn" type="button" aria-label="How to play">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="8"/><path d="M7.7 7.6a2.4 2.4 0 1 1 3.3 2.2c-.6.3-1 .8-1 1.5v.5"/><circle cx="10" cy="14.6" r=".4" fill="currentColor"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="modes">
+      <div class="tabs" role="tablist" aria-label="Mode">
+        <button class="tab" id="tabToday" role="tab" type="button">Today</button>
+        <button class="tab" id="tabPractice" role="tab" type="button">Practice</button>
+      </div>
+      <p class="meta" id="meta"></p>
+    </div>
+  </header>
+
+  <main class="stage-wrap">
+    <div class="line" id="line">
+      <div class="track" id="track" role="group" aria-label="Timeline, oldest first"></div>
+    </div>
+  </main>
+
+  <footer>
+    <div id="play">
+      <div class="tools">
+        <p class="toast" id="toast" role="status"></p>
+        <div class="lives" id="lives" role="img"><i></i><i></i><i></i></div>
+        <p class="note" id="note"></p>
+      </div>
+      <div class="deal" id="deal" aria-live="polite"></div>
+    </div>
+    <section class="result" id="result" aria-live="polite" hidden>
+      <div class="result-head">
+        <p class="result-title" id="resTitle"></p>
+        <p class="result-tag" id="resTag"></p>
+      </div>
+      <div class="actions">
+        <button class="btn btn-secondary" id="resSecond" type="button"></button>
+        <button class="btn btn-primary" id="resFirst" type="button"></button>
+      </div>
+      <a class="next" id="resNext" hidden></a>
+      <p class="result-foot" id="resFoot"></p>
+    </section>
+  </footer>
+</div>
+
+<dialog class="sheet" id="helpSheet" aria-labelledby="helpTitle">
+  <div class="sheet-head">
+    <h2 id="helpTitle">How to play</h2>
+    <button class="icon-btn" type="button" data-close aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m4 4 10 10M14 4 4 14"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <p>Put each event in its place on the timeline. Tap a gap, or drag the yellow card there. Its year stays hidden until you place it.</p>
+    <div class="example">
+      <div class="mini"><b>1876</b><span>Alexander Graham Bell patents the telephone</span></div>
+      <div class="mini card">Alexander Bain patents a fax machine</div>
+      <span>Before or after the telephone? Tap <b>Later</b> and you lose a life, because the fax came first:</span>
+      <div class="mini wrong"><b>1843</b><span>Alexander Bain patents a fax machine</span></div>
+      <div class="mini"><b>1876</b><span>Alexander Graham Bell patents the telephone</span></div>
+    </div>
+    <p>A wrong card slides to its true place and stays there to help you. You have three lives, and the game ends when every card is placed or the lives are gone. Your score is the cards you got right and the lives you kept.</p>
+    <p>The week gets harder. Monday has 6 well-known events decades apart. By Sunday there are 10, packed within a few years of each other, and some will surprise you.</p>
+    <p class="muted">A new game arrives every midnight. Want more? <b>Practice</b> deals as many as you like.</p>
+    <button class="btn btn-primary" type="button" data-close>Play</button>
+  </div>
+</dialog>
+
+<dialog class="sheet" id="statsSheet" aria-labelledby="statsTitle">
+  <div class="sheet-head">
+    <h2 id="statsTitle">Stats</h2>
+    <button class="icon-btn" type="button" data-close aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m4 4 10 10M14 4 4 14"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body" id="statsBody"></div>
+</dialog>
+
+<!-- Bump ?v= when these change, so browsers never pair this page with an old copy. -->
+<script src="days.js?v=3"></script>
+<script src="lib.js?v=1"></script>
+<script src="../clock.js?v=2"></script>
+<script src="../pwa.js"></script>
+<script src="../next.js?v=8"></script>
+<script>
+(() => {
+  const L = window.DatedLib, D = window.DatedDays;
+  const $ = id => document.getElementById(id);
+  const locale = navigator.language || 'en';
+  // Where the game lives on the web; shared results link here.
+  const SITE = `${location.hostname === 'appassets.androidplatform.net' ? 'https://dailies.matisseduffield.workers.dev' : location.origin}/dated/index.html`;
+
+  const store = {
+    get(k) { try { return JSON.parse(localStorage.getItem('dated.' + k)); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem('dated.' + k, JSON.stringify(v)); } catch {} },
+  };
+
+  // ---- state ----
+  // days: { [day]: { moves: [slot...], done, won, lives, placed } };
+  // practice: the same plus the seed it was dealt from; mode: what's on screen.
+  // dealt: which build of the days this was played on, since a slot only makes
+  // sense against the cards it was played on.
+  const DEALT = 1;
+  const saved = store.get('state') || {};
+  const fresh = saved.dealt === DEALT;
+  const practice = fresh && saved.practice && Number.isInteger(saved.practice.seed) ? saved.practice : null;
+  const state = {
+    dealt: DEALT,
+    days: saved.days && typeof saved.days === 'object' ? saved.days : {},
+    practice,
+    mode: saved.mode === 'practice' && practice ? 'practice' : 'daily',
+  };
+  // A rebuild changes the cards: finished days keep their result, and a game still
+  // going starts again.
+  for (const d of Object.keys(state.days)) {
+    const rec = state.days[d];
+    if (!rec || typeof rec !== 'object' || (!fresh && !rec.done)) delete state.days[d];
+  }
+  const save = () => store.set('state', state);
+
+  let today = L.dayNumber(Clock.now(), D.epoch);
+  let puzzle, play;            // the game on screen and its progress
+  let busy = false;            // a card is on its way; taps wait
+  let timers = [];
+
+  const now = () => L.replay(puzzle.cards, play.moves);
+
+  function checked(rec) {
+    rec.moves = L.cleanMoves(puzzle.cards, rec.moves);
+    const s = L.replay(puzzle.cards, rec.moves);
+    rec.done = s.over; rec.won = s.won; rec.lives = s.lives; rec.placed = s.placed;
+    return rec;
+  }
+
+  function load() {
+    clearTimers();
+    busy = false;
+    press = null;
+    if (state.mode === 'practice') {
+      puzzle = L.practice(state.practice.seed, D);
+      play = checked(state.practice);
+    } else {
+      puzzle = L.daily(today, D);
+      play = checked(state.days[today] || (state.days[today] = { moves: [] }));
+    }
+    rows.clear();
+    $('track').replaceChildren();
+    slots = [];
+  }
+
+  const later = (fn, ms) => { timers.push(setTimeout(fn, ms)); };
+  function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+  const still = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ---- toast ----
+  let toastTimer = 0;
+  function say(text, ms = 2200) {
+    clearTimeout(toastTimer);
+    const t = $('toast');
+    t.textContent = text;
+    t.classList.toggle('show', !!text);
+    if (text && ms) toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+  }
+
+  // ---- the timeline ----
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const rows = new Map();      // one node per card, kept for the whole game
+  let slots = [];
+  let order = [];              // the cards showing, top to bottom
+  let cursor = 0;              // the slot keyboard focus is at
+
+  const sizes = () => (matchMedia('(max-height: 640px)').matches ? { row: 42, gap: 10, end: 30 } : { row: 46, gap: 14, end: 34 });
+
+  function rowFor(card) {
+    let node = rows.get(card.id);
+    if (node) return node;
+    node = el('div', 'row');
+    node.append(el('b'), el('span', '', card.text));
+    node.setAttribute('aria-hidden', 'true');
+    rows.set(card.id, node);
+    $('track').append(node);
+    return node;
+  }
+
+  function markRow(card, mark) {
+    const node = rowFor(card);
+    node.classList.remove('right', 'wrong', 'unseen');
+    if (mark !== 'start') node.classList.add(mark);
+    node.firstChild.textContent = card.year;
+  }
+
+  // Puts every row and slot in its place, with a gap opened at `open` for a card
+  // being dragged in.
+  function layout(open = null) {
+    const { row, gap, end } = sizes();
+    const pitch = row + gap, drop = 14;
+    const n = order.length;
+    const shift = i => (open !== null && i >= open ? drop : 0);
+    order.forEach((card, i) => {
+      rows.get(card.id).style.setProperty('--y', end + i * pitch + shift(i) + 'px');
+    });
+    slots.forEach((s, i) => {
+      s.style.setProperty('--y', (i === 0 ? 0 : end + i * pitch - gap + shift(i) - (i === n ? 0 : drop / 2 * (open === i ? 1 : 0))) + 'px');
+      s.classList.toggle('on', open === i);
+    });
+    $('track').style.height = end * 2 + n * pitch - gap + (open !== null ? drop : 0) + 'px';
+    // A new slot starts where it belongs; only slots already showing slide.
+    const added = slots.filter(s => s.classList.contains('new'));
+    if (added.length) { void $('track').offsetWidth; for (const s of added) s.classList.remove('new'); }
+  }
+
+  const nameOf = card => `${card.year}, ${card.text}`;
+
+  function buildSlots() {
+    const live = !play.done && !settling;
+    $('track').classList.toggle('closed', !live);
+    if (!live) { for (const s of slots) s.remove(); slots = []; return; }
+    const n = order.length;
+    while (slots.length > n + 1) slots.pop().remove();
+    while (slots.length < n + 1) {
+      const b = el('button', 'slot new');
+      b.type = 'button';
+      $('track').append(b);
+      slots.push(b);
+    }
+    slots.forEach((s, i) => {
+      s.dataset.slot = i;
+      const first = i === 0, last = i === n;
+      s.classList.toggle('end', first || last);
+      s.classList.toggle('first', first);
+      s.classList.toggle('last', last);
+      s.textContent = '';
+      if (first || last) s.append(el('span', '', first ? 'Earlier' : 'Later'));
+      s.setAttribute('aria-label', first ? `Earlier than ${nameOf(order[0])}` : last ? `Later than ${nameOf(order[n - 1])}` : `Between ${nameOf(order[i - 1])} and ${nameOf(order[i])}`);
+      s.tabIndex = i === Math.min(cursor, n) ? 0 : -1;
+    });
+  }
+
+  // Everything drawn straight from the saved game, with nothing moving.
+  function drawLine() {
+    const track = $('track');
+    track.classList.add('still');
+    const line = play.done ? L.finalLine(puzzle.cards, play.moves) : now().line;
+    order = line;
+    for (const c of line) markRow(c, c.mark);
+    buildSlots();
+    layout();
+    void track.offsetWidth;
+    track.classList.remove('still');
+    if (play.done) readable();
+  }
+
+  // Over: rows go in timeline order for a screen reader, which no one can see.
+  function readable() {
+    for (const c of order) {
+      const node = rows.get(c.id);
+      node.removeAttribute('aria-hidden');
+      $('track').append(node);
+    }
+  }
+
+  function keepInView(index) {
+    const { row, gap, end } = sizes();
+    const box = $('line');
+    const top = end + index * (row + gap);
+    const margin = gap + 6;
+    let to = box.scrollTop;
+    if (top - margin < to) to = top - margin - (index === 0 ? end : 0);
+    else if (top + row + margin > to + box.clientHeight) to = top + row + margin - box.clientHeight + (index === order.length - 1 ? end : 0);
+    if (to !== box.scrollTop) box.scrollTo({ top: Math.max(0, to), behavior: still() ? 'auto' : 'smooth' });
+  }
+
+  function renderStatus() {
+    const s = now();
+    [...$('lives').children].forEach((pip, i) => pip.classList.toggle('lost', i >= s.lives));
+    $('lives').setAttribute('aria-label', L.livesText(s.lives));
+    $('note').replaceChildren(el('b', '', String(s.placed)), ` placed · ${s.total - s.played} to go`);
+  }
+
+  function renderCard(enter = true) {
+    const s = now();
+    const deal = $('deal');
+    deal.classList.remove('gone', 'new', 'dragging');
+    deal.style.removeProperty('--dx');
+    deal.style.removeProperty('--dy');
+    if (!s.next) return;
+    deal.textContent = s.next.text;
+    if (enter && !still()) { void deal.offsetWidth; deal.classList.add('new'); }
+  }
+
+  const dateOf = day => { const [y, m, d] = D.epoch.split('-').map(Number); return new Date(y, m - 1, d + day - 1); };
+  const dayFormat = new Intl.DateTimeFormat(locale, { weekday: 'short', day: 'numeric', month: 'short' });
+
+  function renderHeader() {
+    const daily = state.mode === 'daily';
+    $('tabToday').setAttribute('aria-selected', String(daily));
+    $('tabPractice').setAttribute('aria-selected', String(!daily));
+    const meta = $('meta');
+    if (daily) return meta.replaceChildren(`No. ${today} · ${dayFormat.format(dateOf(today))}`);
+    const b = el('button', 'meta-btn', 'New game');
+    b.type = 'button';
+    b.addEventListener('click', startPractice);
+    meta.replaceChildren(b);
+  }
+
+  const wonDays = () => Object.keys(state.days).filter(d => state.days[d].won).map(Number);
+
+  function renderResult() {
+    const s = now(), daily = state.mode === 'daily';
+    $('resTitle').textContent = `${s.placed} of ${s.total} placed`;
+    const tag = $('resTag');
+    tag.textContent = s.won ? L.livesText(s.lives) : 'Out of lives';
+    tag.classList.toggle('good', s.won);
+    tag.classList.toggle('bad', !s.won);
+    $('resFirst').textContent = daily ? 'Share' : 'New game';
+    $('resSecond').textContent = daily ? 'Practice' : 'Share';
+    showNext($('resNext'), 'dated', daily);
+    tickNext();
+  }
+
+  function tickNext() {
+    const foot = $('resFoot');
+    if (!play.done) return;
+    const rec = state.days[today];
+    if (!rec || !rec.done) return foot.replaceChildren(el('span', '', 'Today’s game is still to do'));
+    const clock = Clock.now();
+    const midnight = new Date(clock.getFullYear(), clock.getMonth(), clock.getDate() + 1);
+    const mins = Math.max(1, Math.ceil((midnight - clock) / 60000));
+    const left = el('span');
+    left.append(el('b', '', String(L.streak(wonDays(), today))), ' day streak');
+    foot.replaceChildren(left, el('span', '', `Next game in ${mins >= 60 ? `${Math.floor(mins / 60)} h ` : ''}${mins % 60} min`));
+  }
+
+  let settling = false;        // the game is over and the last card is still landing
+
+  function render() {
+    renderHeader();
+    renderStatus();
+    const over = play.done && !settling;
+    $('play').hidden = over;
+    $('result').hidden = !over;
+    if (over) renderResult(); else renderCard(false);
+    drawLine();
+    tellBack();
+  }
+
+  // ---- stats ----
+  function renderStats() {
+    const days = Object.keys(state.days).map(Number).filter(d => state.days[d].done);
+    const body = $('statsBody');
+    if (!days.length) return body.replaceChildren(el('p', 'empty', 'Finish a daily game to start your stats.'));
+    const won = wonDays();
+    const nums = el('div', 'numbers');
+    for (const [v, label] of [
+      [days.length, 'Played'],
+      [Math.round(won.length / days.length * 100) + '%', 'Finished'],
+      [L.streak(won, today), 'Streak'],
+      [L.bestStreak(won), 'Best streak'],
+    ]) {
+      const n = el('p', 'num');
+      n.append(el('b', '', String(v)), el('span', '', label));
+      nums.append(n);
+    }
+    // How each game ended: lives kept, or none.
+    const LABELS = ['3 lives', '2 lives', '1 life', 'Out of lives'];
+    const slot = d => L.LIVES - state.days[d].lives;
+    const counts = Array(LABELS.length).fill(0);
+    for (const d of days) counts[slot(d)]++;
+    const max = Math.max(...counts, 1);
+    const dist = el('div', 'dist');
+    dist.append(el('p', 'dist-title', 'Lives left'));
+    counts.forEach((c, i) => {
+      const row = el('div', 'bar-row');
+      row.style.gridTemplateColumns = '82px 1fr';
+      const bar = el('div', 'bar', String(c));
+      bar.style.width = `${Math.max(8, c / max * 100)}%`;
+      if (days.includes(today) && slot(today) === i) bar.classList.add('today');
+      row.append(el('span', '', LABELS[i]), el('div'));
+      row.lastChild.append(bar);
+      dist.append(row);
+    });
+    body.replaceChildren(nums, dist);
+  }
+
+  // ---- sheets ----
+  function openSheet(id) {
+    if (id === 'statsSheet') renderStats();
+    const d = $(id);
+    if (!d.open) d.showModal();
+    tellBack();
+  }
+  for (const d of document.querySelectorAll('dialog.sheet')) {
+    d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-close]')) d.close(); });
+    d.addEventListener('close', tellBack);
+  }
+  const openDialog = () => document.querySelector('dialog.sheet[open]');
+
+  // ---- playing ----
+  const locked = () => busy || play.done;
+
+  // The card lands where it was put. A right one stays; a wrong one shows its year
+  // there, a life goes, and it slides to its true place.
+  function place(slot, fromBox = null) {
+    if (locked()) return;
+    const before = now();
+    const card = before.next;
+    const at = L.rightSlot(before.line, card.year);
+    const right = slot === at;
+    busy = true;
+    cursor = at;
+    say('');
+    play.moves.push(slot);
+    checked(play);
+    if (play.done) { settling = true; report(); }
+    save();
+    haptic(right ? 'tap' : 'tick');
+
+    // In from where the card was, under the rows already there.
+    const track = $('track');
+    const box = fromBox || $('deal').getBoundingClientRect();
+    const trackBox = track.getBoundingClientRect();
+    const node = rowFor(card);
+    node.classList.add('moving');
+    track.classList.add('still');
+    node.style.setProperty('--y', box.top - trackBox.top + 'px');
+    node.firstChild.textContent = '';
+    $('deal').classList.add('gone');
+    order = [...before.line.slice(0, slot), card, ...before.line.slice(slot)];
+    void node.offsetWidth;
+    track.classList.remove('still');
+    markRow(card, right ? 'right' : 'wrong');
+    renderStatus();
+    buildSlots();
+    layout();
+
+    const quick = still();
+    if (right) {
+      keepInView(slot);
+      later(() => next(node), quick ? 0 : 340);
+      return;
+    }
+    say(`Wrong: it was ${card.year}`, 2600);
+    node.classList.add('bump');
+    later(() => {
+      node.classList.remove('bump');
+      order = [...before.line.slice(0, at), card, ...before.line.slice(at)];
+      buildSlots();
+      layout();
+      keepInView(at);
+      later(() => next(node), quick ? 0 : 400);
+    }, quick ? 0 : 520);
+  }
+
+  function next(node) {
+    node.classList.remove('moving');
+    busy = false;
+    if (!play.done) {
+      buildSlots();
+      renderCard();
+      if (document.activeElement && document.activeElement.classList.contains('slot')) slots[Math.min(cursor, slots.length - 1)].focus();
+      return;
+    }
+    finish();
+  }
+
+  // Over: the cards never played join the timeline, then the result.
+  function finish() {
+    const line = L.finalLine(puzzle.cards, play.moves);
+    const added = line.filter(c => !rows.has(c.id));
+    order = line;
+    for (const c of added) { markRow(c, c.mark); rows.get(c.id).classList.add('fresh'); }
+    const track = $('track');
+    track.classList.add('still');
+    layout();
+    void track.offsetWidth;
+    track.classList.remove('still');
+    for (const c of added) rows.get(c.id).classList.remove('fresh');
+    settling = false;
+    $('play').hidden = true;
+    $('result').hidden = false;
+    renderResult();
+    buildSlots();
+    readable();
+    tellBack();
+  }
+
+  // Today's result, for the hub's home screen.
+  function report() {
+    // Finished in the moments after midnight: that day's over, so the hub's new day stays open.
+    if (L.dayNumber(Clock.now(), D.epoch) !== today) return;
+    const rec = state.days[today];
+    if (!rec || !rec.done) return;
+    const total = L.daily(today, D).cards.length - 1;
+    const text = rec.won ? `${rec.placed} of ${total}, ${L.livesText(rec.lives)}` : `${rec.placed} of ${total}, out of lives`;
+    try { localStorage.setItem('hub.dated', JSON.stringify({ date: Clock.now().toDateString(), text })); } catch {}
+  }
+
+  function share() {
+    const text = `${L.shareText(state.mode === 'daily' ? today : 0, now())}\n${SITE}`;
+    if (app) return toApp({ type: 'share', title: 'Dated', text });
+    if (navigator.share) return navigator.share({ text }).catch(() => {});
+    navigator.clipboard.writeText(text).then(() => {
+      // The toast is hidden on the result screen, so the button says it.
+      const b = $(state.mode === 'daily' ? 'resFirst' : 'resSecond');
+      b.textContent = 'Copied';
+      setTimeout(() => { b.textContent = 'Share'; }, 1600);
+    }, () => {});
+  }
+
+  function startPractice() {
+    state.practice = { seed: Math.floor(Math.random() * 2 ** 31), moves: [] };
+    state.mode = 'practice';
+    settling = false;
+    save(); load(); say(''); render();
+    $('line').scrollTop = 0;
+  }
+  function setMode(mode) {
+    if (state.mode === mode) return;
+    if (mode === 'practice' && (!state.practice || state.practice.done)) return startPractice();
+    state.mode = mode;
+    settling = false;
+    save(); load(); say(''); render();
+    $('line').scrollTop = 0;
+  }
+
+  // ---- tap, drag and keys ----
+  $('track').addEventListener('click', e => {
+    const s = e.target.closest('.slot');
+    if (s) place(Number(s.dataset.slot));
+  });
+
+  // Arrow keys walk the gaps; Enter or Space places the card.
+  $('track').addEventListener('keydown', e => {
+    const s = e.target.closest('.slot');
+    if (!s) return;
+    const step = { ArrowUp: -1, ArrowDown: 1 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const at = Math.max(0, Math.min(slots.length - 1, Number(s.dataset.slot) + step));
+    cursor = at;
+    slots.forEach((b, i) => { b.tabIndex = i === at ? 0 : -1; });
+    slots[at].focus();
+    const { row, gap, end } = sizes();
+    const y = at === 0 ? 0 : end + at * (row + gap) - gap;
+    const box = $('line');
+    if (y < box.scrollTop + end) box.scrollTop = Math.max(0, y - end);
+    else if (y + end > box.scrollTop + box.clientHeight) box.scrollTop = y + end * 2 - box.clientHeight;
+  });
+
+  // A press on the card becomes a drag once it moves. Under a finger the card rides
+  // above the touch, so it can be seen, and that's what's aimed.
+  let press = null;
+  let dragFrame = 0;
+
+  function slotAt(y) {
+    const { row, gap, end } = sizes();
+    const box = $('line').getBoundingClientRect();
+    const pitch = row + gap;
+    const n = order.length;
+    if (y < box.top - 8 || y > box.bottom + 40) return null;
+    const inTrack = y - $('track').getBoundingClientRect().top;
+    return Math.max(0, Math.min(n, Math.round((inTrack - end + gap / 2) / pitch)));
+  }
+
+  function aim() {
+    if (!press || !press.drag) return;
+    const box = $('line');
+    const edge = box.getBoundingClientRect();
+    if (press.aimY < edge.top + 30) box.scrollTop -= 7;
+    else if (press.aimY > edge.bottom - 30) box.scrollTop += 7;
+    const slot = slotAt(press.aimY);
+    if (slot !== press.over) { press.over = slot; layout(slot); }
+    dragFrame = requestAnimationFrame(aim);
+  }
+
+  function endPress() {
+    cancelAnimationFrame(dragFrame);
+    const p = press;
+    press = null;
+    return p;
+  }
+
+  const deal = $('deal');
+  deal.addEventListener('pointerdown', e => {
+    if (locked() || e.button || press) return;
+    deal.setPointerCapture(e.pointerId);
+    press = { id: e.pointerId, x: e.clientX, y: e.clientY, aimY: e.clientY, drag: false, over: null, lift: e.pointerType === 'mouse' ? 0 : 56 };
+  });
+  deal.addEventListener('pointermove', e => {
+    if (!press || e.pointerId !== press.id) return;
+    const dx = e.clientX - press.x, dy = e.clientY - press.y;
+    const away = Math.hypot(dx, dy);
+    if (!press.drag) {
+      if (away < 7) return;
+      press.drag = true;
+      deal.classList.add('dragging');
+      dragFrame = requestAnimationFrame(aim);
+    }
+    // The lift grows with the move, so the card never jumps.
+    const lift = Math.min(press.lift, away);
+    deal.style.setProperty('--dx', dx + 'px');
+    deal.style.setProperty('--dy', dy - lift + 'px');
+    press.aimY = e.clientY - lift;
+  });
+  deal.addEventListener('pointerup', e => {
+    if (!press || e.pointerId !== press.id) return;
+    const p = endPress();
+    if (!p.drag) return say('Tap a gap, or drag the card');
+    const box = deal.getBoundingClientRect();
+    deal.classList.remove('dragging');
+    if (p.over === null) return renderCard(false);
+    place(p.over, box);
+  });
+  const dropPress = e => {
+    if (!press || e.pointerId !== press.id) return;
+    endPress();
+    renderCard(false);
+    layout();
+  };
+  deal.addEventListener('pointercancel', dropPress);
+  deal.addEventListener('lostpointercapture', dropPress);
+
+  $('resFirst').addEventListener('click', () => state.mode === 'daily' ? share() : startPractice());
+  $('resSecond').addEventListener('click', () => state.mode === 'daily' ? setMode('practice') : share());
+  $('tabToday').addEventListener('click', () => setMode('daily'));
+  $('tabPractice').addEventListener('click', () => setMode('practice'));
+  $('helpBtn').addEventListener('click', () => openSheet('helpSheet'));
+  $('statsBtn').addEventListener('click', () => openSheet('statsSheet'));
+
+  // Android Back: close a sheet, then leave practice. After that the app
+  // goes back to the hub.
+  window.ladderBack = () => {
+    const d = openDialog();
+    if (d) { d.close(); return true; }
+    if (state.mode !== 'practice') return false;
+    setMode('daily');
+    return true;
+  };
+  function tellBack() { toApp({ type: 'back', enabled: !!openDialog() || state.mode === 'practice' }); }
+
+  addEventListener('resize', () => { if (!busy && !press) drawLine(); });
+  // A new day while the game sits open (or comes back from the background).
+  function checkDay() {
+    const day = L.dayNumber(Clock.now(), D.epoch);
+    if (day !== today) {
+      // A daily in hand at midnight is finished first; it still counts for its day.
+      if (state.mode === 'daily' && play.moves.length && !play.done && Clock.playing()) return;
+      today = day;
+      if (state.mode === 'daily') { settling = false; load(); $('line').scrollTop = 0; }
+      say('');
+      render();
+    } else if (play.done && !settling) tickNext();
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkDay(); });
+  addEventListener('clock', checkDay);
+  setInterval(() => { if (!document.hidden) checkDay(); }, 30000);
+
+  // ---- Android app bridge (absent in a browser) ----
+  const app = window.ladderApp || null;
+  function toApp(msg) {
+    if (!app) return;
+    try { app.postMessage(JSON.stringify(msg)); } catch {}
+  }
+  function haptic(kind = 'tap') { toApp({ type: 'haptic', kind }); }
+
+  // ---- boot ----
+  // Back on a new day: open on today's game, not yesterday's practice.
+  if (store.get('lastDay') !== today) { store.set('lastDay', today); state.mode = 'daily'; }
+  load();
+  report();
+  render();
+  // First visit: how to play, once.
+  if (!store.get('seenHelp')) { store.set('seenHelp', true); openSheet('helpSheet'); }
+})();
+</script>
+</body>
+</html>

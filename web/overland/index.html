@@ -1,0 +1,841 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#E8ECE5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E1412" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="../manifest.json">
+<link rel="apple-touch-icon" sizes="180x180" href="../icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Dailies">
+<meta name="description" content="Overland: cross the map from one country to another, naming the countries between. A new route every day.">
+<title>Overland</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect x=%223%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2212.2%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2221.4%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%223%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2212.2%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23F4C52E%22/><rect x=%2221.4%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%223%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%2212.2%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%2221.4%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/></svg>">
+<link rel="preload" href="../fonts/hanken-grotesk-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../shared.css">
+<style>
+/* Yellow is where you start, blue where you're going, green what's joined up. */
+:root { --from: #F4C52E; --on-from: #14211C; --to: #2C53C4; --on-to: #F7F8F4; --land: var(--key); --loose: var(--line-strong); --way: color-mix(in srgb, var(--pos) 34%, var(--land)); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --land: var(--key-down); --to: #5C7FE8; --on-to: #0E1412; } }
+:root[data-theme="dark"] { --land: var(--key-down); --to: #5C7FE8; --on-to: #0E1412; }
+
+.stage { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; }
+
+/* The two ends */
+.ends { display: grid; grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr); align-items: center; gap: 6px; }
+.end { min-width: 0; padding: 7px 10px; border-radius: 7px; font-size: .92rem; font-weight: 600; line-height: 1.2; text-align: center; overflow-wrap: anywhere; }
+.end.from { background: var(--from); color: var(--on-from); }
+.end.to { background: var(--to); color: var(--on-to); }
+.ends svg { color: var(--muted); }
+
+/* The map: land with no borders on it, and only the countries named so far */
+.map { position: relative; flex: 1; min-height: 120px; background: var(--surface); border-radius: 10px; overflow: hidden; }
+.map svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* Pinch and drag move the map, not the page */
+.map { touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
+.map:active { cursor: grabbing; }
+/* Back to the whole route, once you've moved */
+.fit { position: absolute; top: 8px; right: 8px; min-height: 32px; padding: 0 12px; background: var(--bg); border: 0; border-radius: 16px; box-shadow: 0 0 0 1px var(--line); font-size: .84rem; font-weight: 600; color: var(--ink); cursor: pointer; }
+.fit::after { content: ""; position: absolute; inset: -8px -4px; }
+.fit:active { background: var(--key); }
+.land { fill: var(--land); stroke: none; }
+.place { stroke: var(--surface); stroke-width: 1px; stroke-linejoin: round; animation: show .3s ease-out; transition: fill .3s ease, stroke .3s ease; }
+.place path { vector-effect: non-scaling-stroke; }
+.place.from { fill: var(--from); }
+.place.to { fill: var(--to); }
+.place.joined { fill: var(--pos); }
+.place.loose { fill: var(--loose); }
+.place.way { fill: var(--way); }
+/* Once it's over: every other country, plain, with its borders showing */
+.place.rest { fill: var(--land); stroke: var(--surface); stroke-width: 1px; animation: show .5s ease-out; }
+.names text.rest-name { font-weight: 500; fill: var(--muted); }
+/* A small country draws its own edge too, or it's lost on a wide map */
+.place.speck { stroke-width: 3px; }
+.place.speck.from { stroke: var(--from); }
+.place.speck.to { stroke: var(--to); }
+.place.speck.joined { stroke: var(--pos); }
+.place.speck.loose { stroke: var(--loose); }
+.place.speck.way { stroke: var(--way); }
+.names { pointer-events: none; }
+.names text { text-anchor: middle; dominant-baseline: central; font-weight: 600; fill: var(--ink); stroke: var(--surface); paint-order: stroke; stroke-linejoin: round; }
+@keyframes show { from { opacity: 0; } }
+
+/* Guesses so far, newest last */
+.trail { display: flex; gap: 6px; min-height: 30px; overflow: auto hidden; scrollbar-width: none; }
+.trail::-webkit-scrollbar { display: none; }
+.trail:empty::before { content: "Name any country between them"; align-self: center; font-size: .86rem; color: var(--muted); }
+.stop { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 10px; background: var(--surface); border-radius: 15px; font-size: .84rem; font-weight: 600; white-space: nowrap; }
+.stop i { width: 9px; height: 9px; border-radius: 50%; background: var(--loose); transition: background-color .3s ease; }
+.stop.joined i { background: var(--pos); }
+
+/* What's being typed, and the names it could be */
+.entry { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 36px; }
+.typed { min-width: 0; font-size: 1.06rem; font-weight: 600; text-transform: capitalize; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.typed:empty::before { content: "Type a country"; font-weight: 400; color: var(--muted); text-transform: none; }
+.left { flex: none; font-size: .86rem; color: var(--muted); white-space: nowrap; }
+.left b { font-weight: 600; color: var(--ink); }
+.left.low b { color: var(--neg); }
+.toast { top: 0; bottom: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: flex-start; padding: 0; transform: none; }
+.toast.show { transform: none; }
+.picks { display: flex; gap: 6px; min-height: 40px; margin-bottom: 8px; overflow: auto hidden; scrollbar-width: none; }
+.picks::-webkit-scrollbar { display: none; }
+/* More names off to the right fade out at the edge */
+.picks.more { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); }
+.pick { flex: none; min-height: 40px; padding: 0 13px; background: var(--key); border: 0; border-radius: 7px; font-size: .92rem; font-weight: 600; white-space: nowrap; touch-action: manipulation; }
+.pick:first-child { background: var(--ink); color: var(--on-ink); }
+.pick:active { background: var(--key-down); color: var(--ink); }
+.key { height: 48px; }
+
+.best { font-size: .9rem; line-height: 1.35; color: var(--muted); }
+.best:empty { display: none; }
+.best b { font-weight: 600; color: var(--ink); }
+
+/* The worked example in How to play */
+.example { display: grid; gap: 8px; padding: 12px 14px; background: var(--bg); border-radius: 10px; font-size: .92rem; line-height: 1.4; }
+.mini { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.mini span { padding: 3px 9px; border-radius: 6px; background: var(--pos); color: var(--on-ink); font-size: .84rem; font-weight: 600; }
+.mini span.from { background: var(--from); color: var(--on-from); }
+.mini span.to { background: var(--to); color: var(--on-to); }
+
+/* Short phones: the map keeps its share */
+@media (max-height: 700px) {
+  .key { height: 42px; }
+  .keys { gap: 5px; }
+  .pick, .picks { min-height: 36px; }
+  .picks { margin-bottom: 6px; }
+  .end { padding: 5px 8px; font-size: .86rem; }
+  .entry { min-height: 30px; }
+  .result { gap: 8px; padding: 10px 12px; }
+  .result-title { font-size: 1.2rem; }
+  .result .btn { min-height: 44px; }
+  .next { min-height: 24px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .place { animation: none; transition: none; }
+  .stop i { transition: none; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="top">
+      <a class="brand" href="../index.html" aria-label="All games">
+        <svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 2 8l6 6"/></svg>
+        <svg width="30" height="30" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#3C9BE0"/><path d="M8,9L30,7L27,23L9,30Z" fill="#CFE6F7" stroke="#3C9BE0" stroke-width="2.2" stroke-linejoin="round"/><path d="M30,38L42,42L56,29L57,56L27,57Z" fill="#CFE6F7" stroke="#3C9BE0" stroke-width="2.2" stroke-linejoin="round"/><path d="M9,30L26,22L29,41L27,57L8,55Z" fill="#FFCF33" stroke="#3C9BE0" stroke-width="2.2" stroke-linejoin="round"/><path d="M26,22L46,27L45,47L29,41Z" fill="#2FA36B" stroke="#3C9BE0" stroke-width="2.2" stroke-linejoin="round"/><path d="M30,7L57,9L56,31L46,27L26,22Z" fill="#232C66" stroke="#3C9BE0" stroke-width="2.2" stroke-linejoin="round"/><path d="M18,44L37,34L44,17" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="44" r="4" fill="#FFFFFF"/><circle cx="44" cy="17" r="4" fill="#FFFFFF"/></svg>
+        <h1 class="mark">Overland</h1>
+      </a>
+      <div class="top-right">
+        <button class="icon-btn" id="statsBtn" type="button" aria-label="Stats">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 16.5V11M10 16.5V4M16 16.5V8"/></svg>
+        </button>
+        <button class="icon-btn" id="helpBtn" type="button" aria-label="How to play">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="8"/><path d="M7.7 7.6a2.4 2.4 0 1 1 3.3 2.2c-.6.3-1 .8-1 1.5v.5"/><circle cx="10" cy="14.6" r=".4" fill="currentColor"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="modes">
+      <div class="tabs" role="tablist" aria-label="Mode">
+        <button class="tab" id="tabToday" role="tab" type="button">Today</button>
+        <button class="tab" id="tabPractice" role="tab" type="button">Practice</button>
+      </div>
+      <p class="meta" id="meta"></p>
+    </div>
+  </header>
+
+  <main class="stage">
+    <div class="ends">
+      <p class="end from" id="from"></p>
+      <svg width="18" height="12" viewBox="0 0 18 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 6h14M11 1.5 15.5 6 11 10.5"/></svg>
+      <p class="end to" id="to"></p>
+    </div>
+    <div class="map" id="map">
+      <svg id="svg" role="img" aria-label="Map of the route so far" preserveAspectRatio="xMidYMid meet">
+        <path class="land" id="land"/>
+        <g id="places"></g>
+        <g class="names" id="names"></g>
+      </svg>
+      <button class="fit" id="fitBtn" type="button" hidden>Fit</button>
+    </div>
+    <div class="trail" id="trail" aria-label="Your guesses"></div>
+  </main>
+
+  <footer>
+    <div id="play">
+      <div class="entry">
+        <p class="toast" id="toast" role="status"></p>
+        <p class="typed" id="typed"></p>
+        <p class="left" id="left"></p>
+      </div>
+      <div class="picks" id="picks"></div>
+      <div class="keys" id="keys" aria-label="Letters"></div>
+    </div>
+    <section class="result" id="result" aria-live="polite" hidden>
+      <div class="result-head">
+        <p class="result-title" id="resTitle"></p>
+        <p class="result-tag" id="resTag"></p>
+      </div>
+      <p class="best" id="resBest"></p>
+      <div class="actions">
+        <button class="btn btn-secondary" id="resSecond" type="button"></button>
+        <button class="btn btn-primary" id="resFirst" type="button"></button>
+      </div>
+      <a class="next" id="resNext" hidden></a>
+      <p class="result-foot" id="resFoot"></p>
+    </section>
+  </footer>
+</div>
+
+<dialog class="sheet" id="helpSheet" aria-labelledby="helpTitle">
+  <div class="sheet-head">
+    <h2 id="helpTitle">How to play</h2>
+    <button class="icon-btn" type="button" data-close aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m4 4 10 10M14 4 4 14"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <p>Get from the yellow country to the blue one by land. Name the countries in between, in any order, and each one appears on the map.</p>
+    <div class="example">
+      <div class="mini"><span class="from">Portugal</span><span>Spain</span><span>France</span><span class="to">Germany</span></div>
+      <span>Spain and France join Portugal to Germany, so that's two guesses.</span>
+    </div>
+    <p>A guess turns green once a border joins it to either end. You win when the two ends are joined, and you only get a few guesses more than the shortest route needs.</p>
+    <p>The map shows no borders, so you need to know what's next to what. Only land borders count: no bridges or tunnels. Spain and Morocco touch at Ceuta and Melilla, Russia reaches Poland and Lithuania at Kaliningrad, and France means France in Europe.</p>
+    <p>Pinch or drag the map to look around, or double-tap to zoom in. <b>Fit</b> brings the whole route back. Once the game is over, the whole map opens up to explore.</p>
+    <p>The week gets harder. Monday's route needs 3 countries, with 3 guesses to spare. By Sunday it's 7 or 8, with 2 to spare.</p>
+    <p class="muted">A new route arrives every midnight. Want more? <b>Practice</b> deals as many as you like.</p>
+    <button class="btn btn-primary" type="button" data-close>Play</button>
+  </div>
+</dialog>
+
+<dialog class="sheet" id="statsSheet" aria-labelledby="statsTitle">
+  <div class="sheet-head">
+    <h2 id="statsTitle">Stats</h2>
+    <button class="icon-btn" type="button" data-close aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m4 4 10 10M14 4 4 14"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body" id="statsBody"></div>
+</dialog>
+
+<!-- Bump ?v= when these change, so browsers never pair this page with an old copy. -->
+<script src="map.js?v=1"></script>
+<script src="days.js?v=1"></script>
+<script src="lib.js?v=2"></script>
+<script src="../clock.js?v=2"></script>
+<script src="../pwa.js"></script>
+<script src="../next.js?v=8"></script>
+<script>
+(() => {
+  const L = window.OverlandLib, D = window.OverlandDays, M = window.OverlandMap;
+  const $ = id => document.getElementById(id);
+  const locale = navigator.language || 'en';
+  // Where the game lives on the web; shared results link here.
+  const SITE = `${location.hostname === 'appassets.androidplatform.net' ? 'https://dailies.matisseduffield.workers.dev' : location.origin}/overland/index.html`;
+  const SVG = 'http://www.w3.org/2000/svg';
+  const nameOf = code => M.countries[code].name;
+
+  const store = {
+    get(k) { try { return JSON.parse(localStorage.getItem('overland.' + k)); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem('overland.' + k, JSON.stringify(v)); } catch {} },
+  };
+
+  // ---- state ----
+  // days: { [day]: { guesses: [code...], done, won, used, over } }; practice: the
+  // same plus the seed it was dealt from; mode: what's on screen.
+  const saved = store.get('state') || {};
+  const practiceSaved = saved.practice && Number.isInteger(saved.practice.seed) ? saved.practice : null;
+  const state = {
+    days: saved.days && typeof saved.days === 'object' ? saved.days : {},
+    practice: practiceSaved,
+    mode: saved.mode === 'practice' && practiceSaved ? 'practice' : 'daily',
+  };
+  for (const d of Object.keys(state.days)) if (!state.days[d] || typeof state.days[d] !== 'object') delete state.days[d];
+  const save = () => store.set('state', state);
+
+  let today = L.dayNumber(Clock.now(), D.epoch);
+  let puzzle, play;            // the game on screen and its progress
+  let typed = '';
+
+  const now = () => L.replay(M, puzzle, play.guesses);
+
+  function checked(rec) {
+    rec.guesses = L.cleanGuesses(M, puzzle, rec.guesses);
+    const s = L.replay(M, puzzle, rec.guesses);
+    rec.done = s.over; rec.won = s.won; rec.used = s.used; rec.over = s.used - puzzle.best;
+    return rec;
+  }
+
+  function load() {
+    typed = '';
+    if (state.mode === 'practice') {
+      puzzle = L.practice(state.practice.seed, M);
+      play = checked(state.practice);
+    } else {
+      puzzle = L.daily(today, D, M);
+      play = checked(state.days[today] || (state.days[today] = { guesses: [] }));
+    }
+    $('places').replaceChildren();
+    $('names').replaceChildren();
+    shapes.clear();
+    rest.clear();
+    camera = null;
+  }
+
+  // ---- toast ----
+  let toastTimer = 0;
+  function say(text, ms = 1800) {
+    clearTimeout(toastTimer);
+    const t = $('toast');
+    t.textContent = text;
+    t.classList.toggle('show', !!text);
+    if (text && ms) toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+  }
+
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const still = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ---- the map ----
+  const shapes = new Map();    // code: { place, label }
+
+  const rest = new Set();      // countries shown only once the game's over
+  function shape(code, under = false) {
+    let s = shapes.get(code);
+    if (s) return s;
+    const c = M.countries[code];
+    const place = document.createElementNS(SVG, 'g');
+    const path = document.createElementNS(SVG, 'path');
+    path.setAttribute('d', c.d);
+    place.append(path);
+    const label = document.createElementNS(SVG, 'text');
+    label.setAttribute('x', c.at[0]);
+    label.setAttribute('y', c.at[1]);
+    label.textContent = c.name;
+    if (under) { $('places').prepend(place); $('names').prepend(label); label.setAttribute('class', 'rest-name'); rest.add(code); }
+    else { $('places').append(place); $('names').append(label); }
+    s = { place, label };
+    shapes.set(code, s);
+    return s;
+  }
+
+  const unite = (a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
+  const touches = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+
+  // What the map should frame: both ends and all that's joined to them, and any
+  // other guess near enough not to throw the view out.
+  function frame(shown) {
+    const box = c => M.countries[c].box;
+    const s = now();
+    let area = unite(box(puzzle.start), box(puzzle.end));
+    for (const c of shown) if (s.joined.has(c) || (play.done && !play.guesses.includes(c))) area = unite(area, box(c));
+    const reach = Math.max(area[2] - area[0], area[3] - area[1]) * .4;
+    const wide = [area[0] - reach, area[1] - reach, area[2] + reach, area[3] + reach];
+    for (const c of play.guesses) if (touches(box(c), wide)) area = unite(area, box(c));
+
+    const { width, height } = $('map').getBoundingClientRect();
+    const aspect = (width || 340) / (height || 300);
+    // Room round the edge, and never so close that the land loses its shape.
+    let w = Math.max((area[2] - area[0]) * 1.24, 420), h = Math.max((area[3] - area[1]) * 1.3, 320);
+    if (w / h < aspect) w = h * aspect; else h = w / aspect;
+    return [(area[0] + area[2]) / 2 - w / 2, (area[1] + area[3]) / 2 - h / 2, w, h];
+  }
+
+  let camera = null, cameraFrame = 0;
+
+  function look(view) {
+    camera = view;
+    $('svg').setAttribute('viewBox', view.map(v => v.toFixed(1)).join(' '));
+    // Names stay the same size on screen however far out the map is.
+    const scale = view[2] / ($('map').getBoundingClientRect().width || 340);
+    const names = $('names');
+    names.style.fontSize = 11.5 * scale + 'px';
+    names.style.strokeWidth = 3 * scale + 'px';
+    placeNames(scale);
+  }
+
+  // The ends always get their names, then the newest guesses, and a name that
+  // would land on one already placed is left off.
+  function placeNames(scale) {
+    const taken = [];
+    const [vx, vy, vw, vh] = camera;
+    const played = [...shapes.keys()].filter(c => !rest.has(c) && c !== puzzle.start && c !== puzzle.end);
+    const order = [puzzle.start, puzzle.end, ...played.reverse(), ...rest];
+    for (const code of order) {
+      const c = M.countries[code];
+      const w = c.name.length * 3.4 * scale, h = 8 * scale;
+      // A country smaller than its name wears it underneath.
+      const y = c.box[3] - c.box[1] < 24 * scale ? c.box[3] + 10 * scale : c.at[1];
+      // A name near the edge moves in rather than run off the map; one whose
+      // country is out of view is left off.
+      const seen = c.at[0] > vx && c.at[0] < vx + vw && y > vy && y < vy + vh;
+      const x = Math.min(Math.max(c.at[0], vx + w + 4 * scale), vx + vw - w - 4 * scale);
+      const clear = seen && !taken.some(([tx, ty, tw]) => Math.abs(tx - x) < w + tw && Math.abs(ty - y) < h * 2);
+      const { label } = shapes.get(code);
+      label.setAttribute('x', x);
+      label.setAttribute('y', y);
+      label.style.display = clear ? '' : 'none';
+      if (clear) taken.push([x, y, w]);
+    }
+  }
+
+  function moveTo(view) {
+    cancelAnimationFrame(cameraFrame);
+    if (!camera || still()) return look(view);
+    const from = camera, began = performance.now(), length = 460;
+    const step = at => {
+      const t = Math.min(1, (at - began) / length), e = 1 - (1 - t) ** 3;
+      look(from.map((v, i) => v + (view[i] - v) * e));
+      if (t < 1) cameraFrame = requestAnimationFrame(step);
+    };
+    cameraFrame = requestAnimationFrame(step);
+  }
+
+  // ---- looking around ----
+  // Pinch or drag the map, or use the wheel; double-tap zooms in. The map
+  // goes back to framing the route with Fit, or by itself after the next guess.
+  const world = Object.values(M.countries).reduce((a, c) => (a ? unite(a, c.box) : c.box), null);
+  const CLOSEST = 90;   // the narrowest view, in map units
+  function clampView([x, y, w, h]) {
+    const aspect = h / w;
+    w = Math.min(Math.max(w, CLOSEST), (world[2] - world[0]) * 1.15);
+    h = w * aspect;
+    // The middle of the view stays over the world.
+    const cx = Math.min(Math.max(x + w / 2, world[0]), world[2]), cy = Math.min(Math.max(y + h / 2, world[1]), world[3]);
+    return [cx - w / 2, cy - h / 2, w, h];
+  }
+  function lookAround(view) {
+    cancelAnimationFrame(cameraFrame);
+    $('fitBtn').hidden = false;
+    look(clampView(view));
+  }
+  // A point on screen, in map units.
+  const toMap = (px, py) => {
+    const r = $('map').getBoundingClientRect();
+    return [camera[0] + (px - r.left) / r.width * camera[2], camera[1] + (py - r.top) / r.height * camera[3], r];
+  };
+  function zoomAt(px, py, by) {
+    if (!camera) return;
+    const [ux, uy, r] = toMap(px, py);
+    const w = camera[2] / by, h = camera[3] / by;
+    lookAround([ux - (px - r.left) / r.width * w, uy - (py - r.top) / r.height * h, w, h]);
+  }
+  function panBy(dx, dy) {
+    if (!camera) return;
+    const r = $('map').getBoundingClientRect();
+    lookAround([camera[0] - dx / r.width * camera[2], camera[1] - dy / r.height * camera[3], camera[2], camera[3]]);
+  }
+  const fingers = new Map();   // pointerId: { x, y }
+  let lastTap = 0, travelled = 0;
+  $('map').addEventListener('pointerdown', e => {
+    if (e.target.closest('.fit')) return;
+    try { $('map').setPointerCapture(e.pointerId); } catch {}
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (fingers.size === 1) travelled = 0;
+  });
+  $('map').addEventListener('pointermove', e => {
+    const was = fingers.get(e.pointerId);
+    if (!was) return;
+    if (fingers.size === 1) {
+      travelled += Math.abs(e.clientX - was.x) + Math.abs(e.clientY - was.y);
+      if (travelled > 6) panBy(e.clientX - was.x, e.clientY - was.y);
+    } else if (fingers.size === 2) {
+      const [a, b] = [...fingers.values()];
+      const other = a === was ? b : a;
+      const before = Math.hypot(was.x - other.x, was.y - other.y);
+      const after = Math.hypot(e.clientX - other.x, e.clientY - other.y);
+      const mx = (e.clientX + other.x) / 2, my = (e.clientY + other.y) / 2;
+      panBy((e.clientX - was.x) / 2, (e.clientY - was.y) / 2);
+      if (before > 0) zoomAt(mx, my, after / before);
+      travelled = 99;
+    }
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  });
+  const lift = e => {
+    if (!fingers.delete(e.pointerId)) return;
+    // Two quick taps in the same place zoom in there.
+    if (e.type === 'pointerup' && !fingers.size && travelled <= 6) {
+      if (e.timeStamp - lastTap < 320) { zoomAt(e.clientX, e.clientY, 2); lastTap = 0; } else lastTap = e.timeStamp;
+    }
+  };
+  $('map').addEventListener('pointerup', lift);
+  $('map').addEventListener('pointercancel', lift);
+  $('map').addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * .0015)); }, { passive: false });
+  $('fitBtn').addEventListener('click', () => { haptic(); drawMap(); });
+
+  // Everything named so far, and the route it missed once the game's over.
+  function drawMap() {
+    $('fitBtn').hidden = true;
+    const s = now();
+    const missed = play.done ? L.route(M, puzzle.start, puzzle.end).slice(1, -1).filter(c => !play.guesses.includes(c)) : [];
+    const paint = (code, cls) => {
+      const small = M.countries[code].area < 30000 ? ' speck' : '';
+      shape(code).place.setAttribute('class', 'place ' + cls + small);
+    };
+    paint(puzzle.start, 'from');
+    paint(puzzle.end, 'to');
+    for (const g of play.guesses) paint(g, s.joined.has(g) ? 'joined' : 'loose');
+    if (!s.won) for (const g of missed) paint(g, 'way');
+    // Once the game's over the whole map opens up to explore, under the route.
+    if (play.done) for (const code of Object.keys(M.countries)) if (!shapes.has(code) || rest.has(code)) shape(code, true).place.setAttribute('class', 'place rest');
+    moveTo(frame([...play.guesses, ...(s.won ? [] : missed)]));
+  }
+
+  function renderTrail() {
+    const s = now();
+    const stops = play.guesses.map(g => {
+      const stop = el('span', s.joined.has(g) ? 'stop joined' : 'stop');
+      stop.append(el('i'), nameOf(g));
+      return stop;
+    });
+    $('trail').replaceChildren(...stops);
+    $('trail').scrollLeft = $('trail').scrollWidth;
+  }
+
+  function renderEntry() {
+    const s = now();
+    $('typed').textContent = typed;
+    const left = $('left');
+    left.classList.toggle('low', s.left <= 1);
+    left.replaceChildren(el('b', '', String(s.left)), s.left === 1 ? ' guess left' : ' guesses left');
+    $('picks').replaceChildren(...L.search(M, typed).map(code => {
+      const b = el('button', 'pick', nameOf(code));
+      b.type = 'button';
+      b.dataset.code = code;
+      return b;
+    }));
+    $('picks').scrollLeft = 0;
+    moreToSee();
+  }
+
+  const dateOf = day => { const [y, m, d] = D.epoch.split('-').map(Number); return new Date(y, m - 1, d + day - 1); };
+  const dayFormat = new Intl.DateTimeFormat(locale, { weekday: 'short', day: 'numeric', month: 'short' });
+
+  function renderHeader() {
+    const daily = state.mode === 'daily';
+    $('tabToday').setAttribute('aria-selected', String(daily));
+    $('tabPractice').setAttribute('aria-selected', String(!daily));
+    $('from').textContent = nameOf(puzzle.start);
+    $('to').textContent = nameOf(puzzle.end);
+    const meta = $('meta');
+    if (daily) return meta.replaceChildren(`No. ${today} · ${dayFormat.format(dateOf(today))}`);
+    const b = el('button', 'meta-btn', 'New route');
+    b.type = 'button';
+    b.addEventListener('click', startPractice);
+    meta.replaceChildren(b);
+  }
+
+  const wonDays = () => Object.keys(state.days).filter(d => state.days[d].won).map(Number);
+
+  function renderResult() {
+    const s = now(), daily = state.mode === 'daily';
+    const extra = s.used - puzzle.best;
+    $('resTitle').textContent = s.won ? L.guessesText(s.used) : 'Out of guesses';
+    const tag = $('resTag');
+    tag.textContent = !s.won ? 'Lost' : extra === 0 ? 'Best route' : `${extra} over best`;
+    tag.classList.toggle('good', s.won && extra === 0);
+    tag.classList.toggle('bad', !s.won);
+    const best = $('resBest');
+    best.replaceChildren();
+    if (!s.won || extra > 0) {
+      const way = L.route(M, puzzle.start, puzzle.end).slice(1, -1).map(nameOf).join(', ');
+      best.append(el('b', '', `Best in ${puzzle.best}: `), way);
+    }
+    $('resFirst').textContent = daily ? 'Share' : 'New route';
+    $('resSecond').textContent = daily ? 'Practice' : 'Share';
+    showNext($('resNext'), 'overland', daily);
+    tickNext();
+  }
+
+  function tickNext() {
+    const foot = $('resFoot');
+    if (!play.done) return;
+    const rec = state.days[today];
+    if (!rec || !rec.done) return foot.replaceChildren(el('span', '', 'Today’s route is still to do'));
+    const clock = Clock.now();
+    const midnight = new Date(clock.getFullYear(), clock.getMonth(), clock.getDate() + 1);
+    const mins = Math.max(1, Math.ceil((midnight - clock) / 60000));
+    const left = el('span');
+    left.append(el('b', '', String(L.streak(wonDays(), today))), ' day streak');
+    foot.replaceChildren(left, el('span', '', `Next route in ${mins >= 60 ? `${Math.floor(mins / 60)} h ` : ''}${mins % 60} min`));
+  }
+
+  function render() {
+    renderHeader();
+    $('play').hidden = play.done;
+    $('result').hidden = !play.done;
+    if (play.done) renderResult(); else renderEntry();
+    renderTrail();
+    drawMap();
+    tellBack();
+  }
+
+  // ---- stats ----
+  function renderStats() {
+    const days = Object.keys(state.days).map(Number).filter(d => state.days[d].done);
+    const body = $('statsBody');
+    if (!days.length) return body.replaceChildren(el('p', 'empty', 'Finish a daily route to start your stats.'));
+    const won = wonDays();
+    const nums = el('div', 'numbers');
+    for (const [v, label] of [
+      [days.length, 'Played'],
+      [Math.round(won.length / days.length * 100) + '%', 'Won'],
+      [L.streak(won, today), 'Streak'],
+      [L.bestStreak(won), 'Best streak'],
+    ]) {
+      const n = el('p', 'num');
+      n.append(el('b', '', String(v)), el('span', '', label));
+      nums.append(n);
+    }
+    // How each route went: guesses over the best, or lost.
+    const LABELS = ['Best', '+1', '+2', '+3', 'Lost'];
+    const slot = d => (state.days[d].won ? Math.min(3, state.days[d].over) : 4);
+    const counts = Array(LABELS.length).fill(0);
+    for (const d of days) counts[slot(d)]++;
+    const max = Math.max(...counts, 1);
+    const dist = el('div', 'dist');
+    dist.append(el('p', 'dist-title', 'Guesses over best'));
+    counts.forEach((c, i) => {
+      const row = el('div', 'bar-row');
+      const bar = el('div', 'bar', String(c));
+      bar.style.width = `${Math.max(8, c / max * 100)}%`;
+      if (days.includes(today) && slot(today) === i) bar.classList.add('today');
+      row.append(el('span', '', LABELS[i]), el('div'));
+      row.lastChild.append(bar);
+      dist.append(row);
+    });
+    body.replaceChildren(nums, dist);
+  }
+
+  // ---- sheets ----
+  function openSheet(id) {
+    if (id === 'statsSheet') renderStats();
+    const d = $(id);
+    if (!d.open) d.showModal();
+    tellBack();
+  }
+  for (const d of document.querySelectorAll('dialog.sheet')) {
+    d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-close]')) d.close(); });
+    d.addEventListener('close', tellBack);
+  }
+  const openDialog = () => document.querySelector('dialog.sheet[open]');
+
+  // ---- playing ----
+  function guess(code) {
+    if (play.done) return;
+    typed = '';
+    if (code === puzzle.start || code === puzzle.end || play.guesses.includes(code)) {
+      renderEntry();
+      return say(`${nameOf(code)} is already on the map`);
+    }
+    say('');
+    play.guesses.push(code);
+    checked(play);
+    if (play.done) report();
+    save();
+    haptic(now().joined.has(code) ? 'tap' : 'tick');
+    render();
+  }
+
+  function press(ch) {
+    if (play.done || typed.length >= 34) return;
+    say('');
+    typed += ch;
+    renderEntry();
+  }
+  function erase() {
+    if (play.done || !typed) return;
+    typed = typed.slice(0, -1);
+    renderEntry();
+  }
+  function enter() {
+    if (play.done || !typed) return;
+    const code = L.search(M, typed)[0];
+    if (code) return guess(code);
+    say(typed.length < 2 ? 'Keep typing' : 'No country by that name');
+  }
+
+  // Today's result, for the hub's home screen.
+  function report() {
+    // Finished in the moments after midnight: that day's over, so the hub's new day stays open.
+    if (L.dayNumber(Clock.now(), D.epoch) !== today) return;
+    const rec = state.days[today];
+    if (!rec || !rec.done) return;
+    const daily = L.daily(today, D, M);
+    const text = L.scoreText(daily, L.replay(M, daily, rec.guesses));
+    try { localStorage.setItem('hub.overland', JSON.stringify({ date: Clock.now().toDateString(), text })); } catch {}
+  }
+
+  function share() {
+    const text = `${L.shareText(state.mode === 'daily' ? today : 0, M, puzzle, play.guesses)}\n${SITE}`;
+    if (app) return toApp({ type: 'share', title: 'Overland', text });
+    if (navigator.share) return navigator.share({ text }).catch(() => {});
+    navigator.clipboard.writeText(text).then(() => {
+      // The toast is hidden on the result screen, so the button says it.
+      const b = $(state.mode === 'daily' ? 'resFirst' : 'resSecond');
+      b.textContent = 'Copied';
+      setTimeout(() => { b.textContent = 'Share'; }, 1600);
+    }, () => {});
+  }
+
+  function startPractice() {
+    state.practice = { seed: Math.floor(Math.random() * 2 ** 31), guesses: [] };
+    state.mode = 'practice';
+    save(); load(); say(''); render();
+  }
+  function setMode(mode) {
+    if (state.mode === mode) return;
+    if (mode === 'practice' && (!state.practice || state.practice.done)) return startPractice();
+    state.mode = mode;
+    save(); load(); say(''); render();
+  }
+
+  // ---- keyboard ----
+  const ROWS = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
+  const backspace = '<svg width="22" height="18" viewBox="0 0 22 18" aria-hidden="true"><path d="M7.5 3.5h11a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-11L2.5 9zM11 6.5l5 5M16 6.5l-5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  $('keys').replaceChildren(...ROWS.map((r, i) => {
+    const row = el('div', 'krow');
+    if (i === 1) row.append(el('span', 'spacer'));
+    for (const ch of r) {
+      const k = el('button', 'key', ch);
+      k.type = 'button';
+      k.dataset.key = ch;
+      row.append(k);
+    }
+    if (i === 1) row.append(el('span', 'spacer'));
+    // Enter and delete either side of the bottom row, as on a phone.
+    if (i === 2) {
+      const go = el('button', 'key wide', 'Enter');
+      go.type = 'button'; go.dataset.key = 'enter';
+      const del = el('button', 'key wide');
+      del.type = 'button'; del.dataset.key = 'erase'; del.setAttribute('aria-label', 'Delete');
+      del.innerHTML = backspace;
+      row.prepend(go);
+      row.append(del);
+    }
+    return row;
+  }));
+  function hit(k) {
+    haptic();
+    if (k.dataset.key === 'enter') enter();
+    else if (k.dataset.key === 'erase') erase();
+    else press(k.dataset.key);
+  }
+  // Keys act on touch-down: a click waits for the finger to lift, and two
+  // thumbs typing fast overlap, which loses letters. A click with no pointer
+  // behind it is Tab and Enter, or a screen reader.
+  let holding = 0;
+  const stopHolding = () => { clearTimeout(holding); clearInterval(holding); };
+  $('keys').addEventListener('pointerdown', e => {
+    const k = e.target.closest('.key');
+    if (!k) return;
+    hit(k);
+    // Holding delete keeps deleting, as on a phone's own keyboard.
+    stopHolding();
+    if (k.dataset.key === 'erase') holding = setTimeout(() => { holding = setInterval(erase, 90); }, 380);
+  });
+  for (const type of ['pointerup', 'pointercancel']) addEventListener(type, stopHolding);
+  $('keys').addEventListener('click', e => {
+    const k = e.target.closest('.key');
+    if (k && (e.detail === 0 || e.pointerType === '')) hit(k);
+  });
+  // A tap on a name is a guess. It waits for the finger to lift, so a swipe along
+  // the names only scrolls them.
+  $('picks').addEventListener('click', e => {
+    const b = e.target.closest('.pick');
+    if (b) guess(b.dataset.code);
+  });
+  // Fade the row's right edge while more names wait off screen.
+  function moreToSee() {
+    const p = $('picks');
+    p.classList.toggle('more', p.scrollWidth - p.clientWidth - p.scrollLeft > 4);
+  }
+  $('picks').addEventListener('scroll', moreToSee, { passive: true });
+  // Keys never take focus, so a real keyboard's Enter always means "guess".
+  $('play').addEventListener('pointerdown', e => { if (e.target.closest('.key')) e.preventDefault(); });
+
+  document.addEventListener('keydown', e => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented || play.done || openDialog()) return;
+    if (/^[a-z]$/i.test(e.key)) {
+      e.preventDefault();
+      // Off the last button clicked, so Enter goes to the game.
+      if (e.target instanceof HTMLElement) e.target.blur();
+      return press(e.key.toLowerCase());
+    }
+    if (e.key === 'Backspace') { e.preventDefault(); return erase(); }
+    // Enter on a button reached with Tab still presses that button.
+    if (e.key === 'Enter' && !(e.target instanceof Element && e.target.closest('button, a'))) { e.preventDefault(); return enter(); }
+  });
+
+  $('resFirst').addEventListener('click', () => state.mode === 'daily' ? share() : startPractice());
+  $('resSecond').addEventListener('click', () => state.mode === 'daily' ? setMode('practice') : share());
+  $('tabToday').addEventListener('click', () => setMode('daily'));
+  $('tabPractice').addEventListener('click', () => setMode('practice'));
+  $('helpBtn').addEventListener('click', () => openSheet('helpSheet'));
+  $('statsBtn').addEventListener('click', () => openSheet('statsSheet'));
+
+  // Android Back: close a sheet, then leave practice. After that the app
+  // goes back to the hub.
+  window.ladderBack = () => {
+    const d = openDialog();
+    if (d) { d.close(); return true; }
+    if (state.mode !== 'practice') return false;
+    setMode('daily');
+    return true;
+  };
+  function tellBack() { toApp({ type: 'back', enabled: !!openDialog() || state.mode === 'practice' }); }
+
+  // The map's box changes with the result panel and the phone's turn.
+  new ResizeObserver(() => {
+    if (!puzzle) return;
+    // Someone looking around keeps their view, reshaped to the new box.
+    if (!$('fitBtn').hidden && camera) {
+      const { width, height } = $('map').getBoundingClientRect();
+      if (!width || !height) return;
+      const h = camera[2] * height / width, cy = camera[1] + camera[3] / 2;
+      return look(clampView([camera[0], cy - h / 2, camera[2], h]));
+    }
+    cancelAnimationFrame(cameraFrame); look(frame([...play.guesses])); drawMap();
+  }).observe($('map'));
+
+  // A new day while the game sits open (or comes back from the background).
+  function checkDay() {
+    const day = L.dayNumber(Clock.now(), D.epoch);
+    if (day !== today) {
+      // A daily in hand at midnight is finished first; it still counts for its day.
+      if (state.mode === 'daily' && play.guesses.length && !play.done && Clock.playing()) return;
+      today = day;
+      if (state.mode === 'daily') load();
+      say('');
+      render();
+    } else if (play.done) tickNext();
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkDay(); });
+  addEventListener('clock', checkDay);
+  setInterval(() => { if (!document.hidden) checkDay(); }, 30000);
+
+  // ---- Android app bridge (absent in a browser) ----
+  const app = window.ladderApp || null;
+  function toApp(msg) {
+    if (!app) return;
+    try { app.postMessage(JSON.stringify(msg)); } catch {}
+  }
+  function haptic(kind = 'tap') { toApp({ type: 'haptic', kind }); }
+
+  // ---- boot ----
+  $('land').setAttribute('d', M.land);
+  // Back on a new day: open on today's route, not yesterday's practice.
+  if (store.get('lastDay') !== today) { store.set('lastDay', today); state.mode = 'daily'; }
+  load();
+  report();
+  render();
+  // First visit: how to play, once.
+  if (!store.get('seenHelp')) { store.set('seenHelp', true); openSheet('helpSheet'); }
+})();
+</script>
+</body>
+</html>

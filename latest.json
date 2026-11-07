@@ -1,0 +1,12 @@
+{
+  "versionCode": 20907,
+  "versionName": "2.9.7",
+  "apk": "https://raw.githubusercontent.com/matisseduffield/dailies-releases/main/Dailies-v2.9.7.apk",
+  "size": 819309,
+  "sha256": "6cb068d860696ce411bbe0d585ef0ce44a2a5a466a0463fc7bb13cf4a715563d",
+  "publishedAt": "2026-11-07T13:08:59Z",
+  "notes": [
+    "Playing past midnight no longer throws away the game you're on: finish it and it counts for its day",
+    "Splice and Reach practice never show you an upcoming daily"
+  ]
+}

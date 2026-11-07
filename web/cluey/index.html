@@ -1,0 +1,832 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#E8ECE5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E1412" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="../manifest.json">
+<link rel="apple-touch-icon" sizes="180x180" href="../icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Dailies">
+<meta name="description" content="Cluey: a small crossword every day, with clues that get trickier through the week.">
+<title>Cluey</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect x=%223%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2212.2%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2221.4%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%223%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2212.2%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23F4C52E%22/><rect x=%2221.4%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%223%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%2212.2%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%2221.4%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/></svg>">
+<link rel="preload" href="../fonts/hanken-grotesk-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../shared.css">
+<style>
+/* A printed crossword: paper squares joined by thin rules, with solid blocks.
+   Yellow is the square you're on and blue its word. Green is right, red is
+   wrong, and pale yellow is a letter that was handed over. */
+:root { --word: color-mix(in srgb, var(--accent) 17%, var(--surface)); --shown: #F4C52E; --on-shown: #14211C; --bad-soft: color-mix(in srgb, var(--neg) 16%, var(--surface)); --good-soft: color-mix(in srgb, var(--pos) 16%, var(--surface)); }
+
+:root {
+  --paper: #FCFCF8; --rule: #A3ACA5; --frame: #14211C; --block: #14211C;
+  --word: #BFD2F8; --here: #F4C52E; --on-here: #14211C; --shown: #FAEBB4; --on-shown: #14211C;
+  --bad-soft: color-mix(in srgb, var(--neg) 16%, var(--paper)); --good-soft: color-mix(in srgb, var(--pos) 16%, var(--paper));
+  /* The clue's number and arrows, dark enough to read on the blue */
+  --on-word: #2A4FBC; --on-word-dim: var(--muted);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --paper: #2B3632; --rule: #0E1412; --frame: #66736C; --block: #060908; --word: #3C5488; --shown: #5A4E20; --on-shown: #F7E7A6; --on-word: #C2D0FF; --on-word-dim: #AEB9B2; }
+}
+:root[data-theme="dark"] { --paper: #2B3632; --rule: #0E1412; --frame: #66736C; --block: #060908; --word: #3C5488; --shown: #5A4E20; --on-shown: #F7E7A6; --on-word: #C2D0FF; --on-word-dim: #AEB9B2; }
+
+.top { min-height: 44px; }
+.meta { min-width: 0; margin-left: auto; padding: 0; font-size: .84rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Small phones or large text (in em, so a bigger font size counts too) */
+.top { container-type: inline-size; }
+@container (max-width: 21.25em) { a.brand > svg:nth-child(2) { display: none; } }
+
+/* The grid: the rules are the board showing through a one pixel gap */
+.stage-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
+.stage { flex: 1; min-width: 0; display: grid; place-items: center; padding: 4px 0; overflow: hidden; }
+.grid { --cell: 44px; display: grid; gap: 1px; grid-template-columns: repeat(var(--n, 5), var(--cell)); grid-auto-rows: var(--cell); background: var(--rule); border: 2px solid var(--frame); user-select: none; -webkit-user-select: none; }
+.block { background: var(--block); }
+.cell {
+  position: relative; display: grid; place-items: center; padding: 0;
+  background: var(--paper); border: 0; border-radius: 0;
+  font-size: calc(var(--cell) * .56); font-weight: 600; line-height: 1; text-transform: uppercase;
+  touch-action: manipulation;
+  transition: background .14s, color .14s;
+}
+.cell .num { position: absolute; top: 4%; left: 6%; font-size: max(9px, calc(var(--cell) * .21)); font-weight: 500; color: var(--ink); transition: color .14s; }
+.cell.word { background: var(--word); }
+.cell.right { background: var(--good-soft); color: var(--pos); }
+.cell.wrong { background: var(--bad-soft); color: var(--neg); }
+.cell.shown { background: var(--shown); color: var(--on-shown); }
+.cell.shown .num { color: var(--on-shown); }
+.cell.on { background: var(--here); color: var(--on-here); }
+.cell.on .num { color: var(--on-here); }
+.cell.won { background: var(--pos); color: var(--on-ink); transition-delay: calc(var(--i) * 14ms); }
+.cell.won .num { color: var(--on-ink); transition-delay: calc(var(--i) * 14ms); }
+.cell.won.shown { background: var(--shown); color: var(--on-shown); }
+.cell.won.shown .num { color: var(--on-shown); }
+.grid.over .cell { cursor: default; }
+
+/* Messages sit just above the clue, where the eyes already are */
+.toast { top: auto; bottom: 6px; left: 50%; right: auto; width: max-content; max-width: 100%; padding: 7px 16px; border-radius: 18px; background: var(--ink); color: var(--on-ink); font-size: .95rem; transform: translate(-50%, 6px); }
+.toast.show { transform: translate(-50%, 0); }
+.toast.warn { color: var(--on-ink); }
+
+/* The time, then the help on offer */
+.tools { display: flex; flex-wrap: wrap; align-items: center; min-height: 40px; }
+.time { flex: 1; font-size: 1rem; font-weight: 600; letter-spacing: .01em; }
+.tool { display: inline-flex; align-items: center; gap: 5px; height: 44px; padding: 0 9px; background: none; border: 0; border-radius: 6px; font-size: .86rem; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.tool:last-child { margin-right: -9px; }
+@media (hover: hover) { .tool:hover:not(:disabled) { color: var(--ink); background: var(--key); } }
+.tool:disabled { opacity: .4; cursor: default; }
+.tool.sure { color: var(--neg); }
+.tool b { font-weight: 600; color: var(--faint); }
+.tool.sure b { display: none; }
+.tools { container-type: inline-size; }
+@container (max-width: 21.25em) { .tool { padding: 0 6px; font-size: .82rem; } .tool:last-child { margin-right: -6px; } }
+
+/* The clue, with the way to the one before and after it */
+.clue-bar { display: grid; grid-template-columns: 42px 1fr 42px; align-items: stretch; min-height: 56px; margin-bottom: 7px; padding: 0 8px; background: var(--word); border-radius: 8px; font-weight: 600; user-select: none; -webkit-user-select: none; }
+.clue-bar button { padding: 0; background: none; border: 0; touch-action: manipulation; }
+.step { display: grid; place-items: center; color: var(--on-word-dim); border-radius: 8px; }
+@media (hover: hover) { .step:hover { color: var(--ink); } }
+.step:active { background: var(--key-down); }
+.say { display: block; min-width: 0; padding: 4px 2px !important; font-size: .95rem; line-height: 1.28; text-align: left; }
+.say b { margin-right: 5px; font-weight: 600; color: var(--on-word); white-space: nowrap; }
+
+.key { height: clamp(40px, 6.6dvh, 54px); }
+.keys { gap: 5px; }
+
+/* All the clues in a sheet */
+.list { display: grid; gap: 4px; }
+.list h3 { margin: 6px 0 2px; font-size: .78rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.row { display: grid; grid-template-columns: 26px 1fr; gap: 6px; width: 100%; min-height: 44px; padding: 8px 10px; background: var(--bg); border: 0; border-radius: 8px; font-size: .94rem; line-height: 1.3; text-align: left; }
+.row.here { background: var(--word); }
+.row b { font-weight: 600; }
+.row.filled span:last-child { color: var(--muted); }
+.row small { display: block; margin-top: 1px; font-size: .86rem; font-weight: 600; letter-spacing: .05em; color: var(--ink); }
+
+/* The worked example in How to play */
+.example { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; padding: 12px 14px; background: var(--bg); border-radius: 10px; font-size: .9rem; line-height: 1.4; }
+.mini { display: grid; grid-template-columns: repeat(3, 30px); grid-auto-rows: 30px; gap: 1px; background: var(--rule); border: 2px solid var(--frame); }
+.mini span { display: grid; place-items: center; background: var(--paper); font-size: .95rem; font-weight: 600; }
+.mini .on { background: var(--here); color: var(--on-here); }
+.mini .word { background: var(--word); }
+.ways { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: .94rem; line-height: 1.45; }
+.ways b { font-weight: 600; }
+
+@media (max-height: 640px) {
+  .app { padding-top: 2px; padding-bottom: 6px; }
+  .tools { min-height: 36px; }
+  .tool { height: 36px; }
+  .clue-bar { min-height: 50px; margin-bottom: 5px; }
+  .say { font-size: .88rem; }
+  .result { gap: 9px; padding: 11px 14px; }
+  .result-title { font-size: 1.25rem; }
+  .btn { min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell, .cell .num { transition: none; }
+  .cell.won, .cell.won .num { transition-delay: 0s; }
+  .tool { transition: none; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="top">
+      <a class="brand" href="../index.html" aria-label="All games">
+        <svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 2 8l6 6"/></svg>
+        <svg width="30" height="30" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#2C53C4"/><rect x="10" y="10" width="44" height="44" rx="4" fill="#14211C"/><rect x="11.4" y="11.4" width="9.7" height="9.7" rx="1" fill="#FFFFFF"/><rect x="21.9" y="11.4" width="9.7" height="9.7" rx="1" fill="#FFFFFF"/><rect x="32.4" y="11.4" width="9.7" height="9.7" rx="1" fill="#FFFFFF"/><rect x="11.4" y="21.9" width="9.7" height="9.7" rx="1" fill="#FFFFFF"/><rect x="32.4" y="21.9" width="9.7" height="9.7" rx="1" fill="#FFFFFF"/><rect x="42.9" y="21.9" width="9.7" height="9.7" rx="1" fill="#FFFFFF"/><rect x="11.4" y="32.4" width="9.7" height="9.7" rx="1" fill="#BFD2F8"/><rect x="21.9" y="32.4" width="9.7" height="9.7" rx="1" fill="#FFCF33"/><rect x="32.4" y="32.4" width="9.7" height="9.7" rx="1" fill="#BFD2F8"/><rect x="42.9" y="32.4" width="9.7" height="9.7" rx="1" fill="#BFD2F8"/><rect x="21.9" y="42.9" width="9.7" height="9.7" rx="1" fill="#FFFFFF"/><rect x="32.4" y="42.9" width="9.7" height="9.7" rx="1" fill="#FFFFFF"/><rect x="42.9" y="42.9" width="9.7" height="9.7" rx="1" fill="#FFFFFF"/></svg>
+        <h1 class="mark">Cluey</h1>
+      </a>
+      <p class="meta" id="meta"></p>
+      <div class="top-right">
+        <button class="icon-btn" id="statsBtn" type="button" aria-label="Stats">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 16.5V11M10 16.5V4M16 16.5V8"/></svg>
+        </button>
+        <button class="icon-btn" id="helpBtn" type="button" aria-label="How to play">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="8"/><path d="M7.7 7.6a2.4 2.4 0 1 1 3.3 2.2c-.6.3-1 .8-1 1.5v.5"/><circle cx="10" cy="14.6" r=".4" fill="currentColor"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="stage-wrap">
+    <p class="toast" id="toast" role="status"></p>
+    <div class="stage" id="stage">
+      <div class="grid" id="grid" role="group" aria-label="Crossword grid"></div>
+    </div>
+  </main>
+
+  <footer>
+    <div id="play">
+      <div class="tools">
+        <p class="time" id="time" aria-label="Time"></p>
+        <button class="tool" id="cluesBtn" type="button">Clues</button>
+        <button class="tool" id="checkBtn" type="button"></button>
+        <button class="tool" id="revealBtn" type="button"></button>
+        <button class="tool" id="giveUpBtn" type="button">Give up</button>
+      </div>
+      <div class="clue-bar">
+        <button class="step" id="prevBtn" type="button" aria-label="Previous clue">
+          <svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 2 8l6 6"/></svg>
+        </button>
+        <button class="say" id="say" type="button" aria-live="polite"></button>
+        <button class="step" id="nextBtn" type="button" aria-label="Next clue">
+          <svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 2 6 6-6 6"/></svg>
+        </button>
+      </div>
+      <div class="keys" id="keys" aria-label="Letters"></div>
+    </div>
+    <section class="result" id="result" aria-live="polite" hidden>
+      <div class="result-head">
+        <p class="result-title" id="resTitle"></p>
+        <p class="result-tag" id="resTag"></p>
+      </div>
+      <p class="result-note" id="resNote"></p>
+      <div class="actions">
+        <button class="btn btn-secondary" id="resClues" type="button">All clues</button>
+        <button class="btn btn-primary" id="resShare" type="button">Share</button>
+      </div>
+      <a class="next" id="resNext" hidden></a>
+      <p class="result-foot" id="resFoot"></p>
+    </section>
+  </footer>
+</div>
+
+<dialog class="sheet" id="helpSheet" aria-labelledby="helpTitle">
+  <div class="sheet-head">
+    <h2 id="helpTitle">How to play</h2>
+    <button class="icon-btn" type="button" data-close aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m4 4 10 10M14 4 4 14"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <p>A small crossword every day. Fill every square so each row and column of letters answers its clue.</p>
+    <div class="example">
+      <div class="mini" aria-hidden="true"><span class="word">O</span><span class="on">W</span><span class="word">L</span><span>R</span><span>O</span><span>E</span><span>B</span><span>E</span><span>T</span></div>
+      <span><b>1 Across</b>: Night shift worker?<br>The answer is OWL, not a nurse. The crossing letters tell you which.</span>
+    </div>
+    <ul class="ways">
+      <li>Tap a square to pick it, and tap it again to turn between across and down.</li>
+      <li>The clue sits above the keyboard. Tap it or use the arrows to change clue.</li>
+      <li>A clue ending in <b>?</b> is having you on: think of another meaning.</li>
+    </ul>
+    <p>Monday is 5×5 and plain. The clues get slyer each day, Friday is 6×6, and the weekend is 7×7 and hardest.</p>
+    <p><b>Check</b> marks the word you’re on, and <b>Reveal</b> fills in the square you’re on. You get three of each. A <b>clean</b> solve uses neither and is right the first time the grid is full, because being told it’s wrong counts too.</p>
+    <button class="btn btn-primary" type="button" data-close>Play</button>
+  </div>
+</dialog>
+
+<dialog class="sheet" id="statsSheet" aria-labelledby="statsTitle">
+  <div class="sheet-head">
+    <h2 id="statsTitle">Stats</h2>
+    <button class="icon-btn" type="button" data-close aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m4 4 10 10M14 4 4 14"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body" id="statsBody"></div>
+</dialog>
+
+<dialog class="sheet" id="cluesSheet" aria-labelledby="cluesTitle">
+  <div class="sheet-head">
+    <h2 id="cluesTitle">Clues</h2>
+    <button class="icon-btn" type="button" data-close aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m4 4 10 10M14 4 4 14"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body"><div class="list" id="cluesBody"></div></div>
+</dialog>
+
+<!-- Bump ?v= when these change, so browsers never pair this page with an old copy. -->
+<script src="puzzles.js?v=2"></script>
+<script src="lib.js?v=1"></script>
+<script src="../clock.js?v=2"></script>
+<script src="../pwa.js"></script>
+<script src="../next.js?v=8"></script>
+<script>
+(() => {
+  const L = window.ClueyLib, D = window.ClueyPuzzles;
+  const $ = id => document.getElementById(id);
+  const locale = navigator.language || 'en';
+  // Where the game lives on the web; shared results link here.
+  const SITE = `${location.hostname === 'appassets.androidplatform.net' ? 'https://dailies.matisseduffield.workers.dev' : location.origin}/cluey/index.html`;
+
+  const store = {
+    get(k) { try { return JSON.parse(localStorage.getItem('cluey.' + k)); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem('cluey.' + k, JSON.stringify(v)); } catch {} },
+  };
+
+  // ---- state ----
+  // days: { [day]: { fill, marks, cell, across, ms, checks, reveals, misses,
+  // missed, done, won, gaveUp } }. A day gone by only keeps what the stats need.
+  const saved = store.get('state') || {};
+  const state = { days: saved.days && typeof saved.days === 'object' ? saved.days : {} };
+  const save = () => store.set('state', state);
+
+  let today = L.dayNumber(Clock.now(), D.epoch);
+  let puzzle, play;            // the puzzle on screen and its progress
+
+  function fresh() {
+    const blank = L.blank(puzzle);
+    const first = puzzle.entries[0];
+    return { fill: blank, marks: blank, cell: first.cells[0], across: first.across, ms: 0, checks: 0, reveals: 0, misses: 0, missed: '', done: false, won: false, gaveUp: false };
+  }
+
+  // A save only fits the grid it was played on.
+  const fits = rec => !!rec && typeof rec.fill === 'string' && typeof rec.marks === 'string'
+    && rec.fill.replace(/[^#]/g, ' ') === L.blank(puzzle) && rec.marks.replace(/[^#]/g, ' ') === L.blank(puzzle)
+    && puzzle.answer[rec.cell] !== undefined && puzzle.answer[rec.cell] !== L.BLOCK;
+
+  function load() {
+    puzzle = L.daily(today, D);
+    const rec = state.days[today];
+    // The day can go back (a flight west): a finished day trimmed for the stats comes back whole.
+    if (rec && rec.done && typeof rec.fill !== 'string') {
+      const first = puzzle.entries[0];
+      Object.assign(rec, { fill: puzzle.answer, marks: L.blank(puzzle), cell: first.cells[0], across: first.across, missed: '' });
+    } else if (!fits(rec)) state.days[today] = fresh();
+    play = state.days[today];
+    buildGrid();
+  }
+
+  // ---- toast ----
+  let toastTimer = 0;
+  function say(text, ms = 2600) {
+    clearTimeout(toastTimer);
+    const t = $('toast');
+    t.textContent = text;
+    t.classList.toggle('show', !!text);
+    if (text && ms) toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+  }
+
+  // ---- the clock ----
+  // It only runs while the game is on screen with the grid in view. Steps come
+  // from performance.now, so moving the phone's clock can't touch the time, and
+  // a long one means the page was asleep, so it doesn't count.
+  let mark = null;
+  const covered = () => $('helpSheet').open || $('statsSheet').open;
+  function tick() {
+    const at = performance.now();
+    if (mark !== null && !play.done && !document.hidden && !covered()) play.ms += Math.min(at - mark, 3000);
+    mark = at;
+    $('time').textContent = L.clock(play.ms);
+  }
+
+  // ---- drawing ----
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+  let cells = [];              // the tile for each place in the grid, null for a block
+
+  function buildGrid() {
+    const grid = $('grid');
+    grid.style.setProperty('--n', puzzle.size);
+    grid.style.setProperty('--gap', puzzle.size > 5 ? '3px' : '4px');
+    cells = [...puzzle.answer].map((ch, i) => {
+      if (ch === L.BLOCK) return null;
+      const b = el('button', 'cell');
+      b.type = 'button'; b.tabIndex = -1; b.dataset.cell = i;
+      b.style.setProperty('--i', i);
+      if (puzzle.numbers[i]) b.append(el('span', 'num', String(puzzle.numbers[i])));
+      b.append(document.createTextNode(''));
+      return b;
+    });
+    grid.replaceChildren(...cells.map(c => c || el('span', 'block')));
+    fit();
+  }
+
+  function fit() {
+    const stage = $('stage'), n = puzzle.size;
+    const room = Math.min(stage.clientWidth, stage.clientHeight - 8, 390) - 4;   // the frame
+    const cell = Math.max(24, Math.min(68, Math.floor((room - (n - 1)) / n)));
+    $('grid').style.setProperty('--cell', cell + 'px');
+  }
+
+  const here = () => L.entryAt(puzzle, play.cell, play.across);
+
+  function renderCells() {
+    const word = play.done ? null : here();
+    const inWord = new Set(word ? word.cells : []);
+    const size = puzzle.size;
+    cells.forEach((c, i) => {
+      if (!c) return;
+      const mark = play.marks[i];
+      const wrongAtEnd = play.gaveUp && play.fill[i] !== puzzle.answer[i];
+      const ch = play.gaveUp ? puzzle.answer[i] : play.fill[i].trim();
+      c.lastChild.nodeValue = ch;
+      c.classList.toggle('on', !play.done && i === play.cell);
+      c.classList.toggle('word', inWord.has(i));
+      c.classList.toggle('right', !play.won && mark === 'c');
+      c.classList.toggle('wrong', wrongAtEnd || (!play.done && mark === 'x'));
+      c.classList.toggle('shown', mark === 'r');
+      c.classList.toggle('won', play.won);
+      const [ac, dn] = puzzle.of[i].map(k => puzzle.entries[k]);
+      const where = word && inWord.has(i)
+        ? `${word.number} ${word.across ? 'Across' : 'Down'}, letter ${word.cells.indexOf(i) + 1} of ${word.cells.length}`
+        : `Row ${Math.floor(i / size) + 1}, column ${i % size + 1}, in ${ac.number} Across and ${dn.number} Down`;
+      c.setAttribute('aria-label', `${where}, ${ch ? ch.toUpperCase() : 'empty'}${mark === 'x' ? ', wrong' : mark === 'c' ? ', right' : mark === 'r' ? ', revealed' : ''}`);
+    });
+    $('grid').classList.toggle('over', play.done);
+  }
+
+  function renderClue() {
+    if (play.done) return;
+    const e = here();
+    const label = el('b', '', L.label(e));
+    label.setAttribute('aria-label', `${e.number} ${e.across ? 'Across' : 'Down'}`);
+    $('say').replaceChildren(label, e.clue);
+  }
+
+  function renderTools() {
+    $('checkBtn').replaceChildren('Check ', el('b', '', String(L.CHECKS - play.checks)));
+    $('revealBtn').replaceChildren('Reveal ', el('b', '', String(L.REVEALS - play.reveals)));
+    $('checkBtn').setAttribute('aria-label', `Check word, ${L.CHECKS - play.checks} left`);
+    $('revealBtn').setAttribute('aria-label', `Reveal letter, ${L.REVEALS - play.reveals} left`);
+    $('checkBtn').disabled = play.checks >= L.CHECKS;
+    $('revealBtn').disabled = play.reveals >= L.REVEALS;
+    for (const b of ['checkBtn', 'revealBtn', 'giveUpBtn']) $(b).classList.remove('sure');
+    $('giveUpBtn').textContent = 'Give up';
+    armed = null;
+  }
+
+  const dateOf = day => { const [y, m, d] = D.epoch.split('-').map(Number); return new Date(y, m - 1, d + day - 1); };
+  const dayFormat = new Intl.DateTimeFormat(locale, { weekday: 'short', day: 'numeric', month: 'short' });
+
+  const wonDays = () => Object.keys(state.days).filter(d => state.days[d].won).map(Number);
+  const helps = g => g.checks + g.reveals + g.misses;
+
+  function renderResult() {
+    $('resTitle').textContent = play.won ? `Solved in ${L.clock(play.ms)}` : 'The answers';
+    const tag = $('resTag');
+    const n = helps(play);
+    tag.textContent = play.gaveUp ? 'Gave up' : n ? `${n} ${n === 1 ? 'help' : 'helps'}` : 'Clean';
+    tag.classList.toggle('good', play.won && !n);
+    tag.classList.toggle('bad', !!play.gaveUp);
+    $('resNote').textContent = play.gaveUp ? `Stopped at ${L.clock(play.ms)}` : L.helpText(play);
+    showNext($('resNext'), 'cluey', true);
+    tickNext();
+  }
+
+  function tickNext() {
+    if (!play.done) return;
+    const clock = Clock.now();
+    const midnight = new Date(clock.getFullYear(), clock.getMonth(), clock.getDate() + 1);
+    const mins = Math.max(1, Math.ceil((midnight - clock) / 60000));
+    const left = el('span');
+    left.append(el('b', '', String(L.streak(wonDays(), today))), ' day streak');
+    $('resFoot').replaceChildren(left, el('span', '', `Next puzzle in ${mins >= 60 ? `${Math.floor(mins / 60)} h ` : ''}${mins % 60} min`));
+  }
+
+  function render() {
+    $('meta').textContent = `No. ${today} · ${dayFormat.format(dateOf(today))}`;
+    $('play').hidden = play.done;
+    $('result').hidden = !play.done;
+    if (play.done) renderResult();
+    fit();
+    renderCells();
+    renderClue();
+    renderTools();
+    tick();
+    tellBack();
+  }
+
+  // ---- stats ----
+  function renderStats() {
+    const days = Object.keys(state.days).map(Number).filter(d => state.days[d].done);
+    const body = $('statsBody');
+    if (!days.length) return body.replaceChildren(el('p', 'empty', 'Finish a daily puzzle to start your stats.'));
+    const won = wonDays();
+    const nums = el('div', 'numbers');
+    for (const [v, label] of [
+      [days.length, 'Played'],
+      [Math.round(won.length / days.length * 100) + '%', 'Solved'],
+      [L.streak(won, today), 'Streak'],
+      [L.bestStreak(won), 'Best streak'],
+    ]) {
+      const n = el('p', 'num');
+      n.append(el('b', '', String(v)), el('span', '', label));
+      nums.append(n);
+    }
+    // How each game went: help taken, or given up.
+    const LABELS = ['Clean', '1 help', '2–3', '4 plus', 'Gave up'];
+    const slot = d => { const g = state.days[d]; if (!g.won) return 4; const n = helps(g); return n === 0 ? 0 : n === 1 ? 1 : n <= 3 ? 2 : 3; };
+    const counts = Array(LABELS.length).fill(0);
+    for (const d of days) counts[slot(d)]++;
+    const bars = (title, rows, max, today) => {
+      const dist = el('div', 'dist');
+      dist.append(el('p', 'dist-title', title));
+      rows.forEach(([name, width, text], i) => {
+        const row = el('div', 'bar-row');
+        const bar = el('div', 'bar', text);
+        bar.style.width = `${Math.max(8, width / max * 100)}%`;
+        if (i === today) bar.classList.add('today');
+        row.append(el('span', '', name), el('div'));
+        row.lastChild.append(bar);
+        dist.append(row);
+      });
+      return dist;
+    };
+    const done = days.includes(today);
+    const first = bars('Results', LABELS.map((name, i) => [name, counts[i], String(counts[i])]), Math.max(...counts, 1), done ? slot(today) : -1);
+    // The average solve by weekday, Monday first: the grids grow, so only
+    // like with like means anything.
+    const week = [1, 2, 3, 4, 5, 6, 0].map(w => {
+      const list = won.filter(d => L.weekdayOf(d, D.epoch) === w).map(d => state.days[d].ms);
+      const mean = list.length ? list.reduce((a, b) => a + b, 0) / list.length : 0;
+      return [new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(new Date(2026, 10, 1 + w)), mean, list.length ? L.clock(mean) : '–'];
+    });
+    const second = bars('Average time', week, Math.max(...week.map(w => w[1]), 1), -1);
+    body.replaceChildren(nums, first, second);
+  }
+
+  // ---- the list of clues ----
+  function renderClues() {
+    const box = $('cluesBody');
+    const at = play.done ? -1 : here().index;
+    const out = [];
+    for (const [title, across] of [['Across', true], ['Down', false]]) {
+      out.push(el('h3', '', title));
+      for (const e of puzzle.entries.filter(x => x.across === across)) {
+        const row = el('button', `row${e.index === at ? ' here' : ''}${!play.done && L.wordFull(puzzle, play.fill, e) ? ' filled' : ''}`);
+        row.type = 'button';
+        row.dataset.entry = e.index;
+        const text = el('span', '', e.clue);
+        if (play.done) text.append(el('small', '', e.word.toUpperCase()));
+        row.append(el('b', '', String(e.number)), text);
+        out.push(row);
+      }
+    }
+    box.replaceChildren(...out);
+  }
+
+  // ---- sheets ----
+  function openSheet(id) {
+    if (id === 'statsSheet') renderStats();
+    if (id === 'cluesSheet') renderClues();
+    tick();
+    const d = $(id);
+    if (!d.open) d.showModal();
+    if (id === 'cluesSheet') { const r = $('cluesBody').querySelector('.here'); if (r) r.scrollIntoView({ block: 'center' }); }
+    tellBack();
+  }
+  for (const d of document.querySelectorAll('dialog.sheet')) {
+    d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-close]')) d.close(); });
+    d.addEventListener('close', () => { mark = performance.now(); tellBack(); });
+  }
+  const openDialog = () => document.querySelector('dialog.sheet[open]');
+
+  // ---- playing ----
+  function moved() {
+    renderCells();
+    renderClue();
+    disarm();
+    save();
+  }
+  function goTo(cell, across) {
+    play.cell = cell;
+    play.across = across;
+    moved();
+  }
+
+  function tapCell(i) {
+    if (play.done) return;
+    haptic();
+    if (i === play.cell) play.across = !play.across;
+    else play.cell = i;
+    moved();
+  }
+  function turn() { if (!play.done) { play.across = !play.across; moved(); } }
+
+  function step(dir) {
+    if (play.done) return;
+    const to = L.stepClue(puzzle, play.fill, here().index, dir);
+    goTo(to.cell, to.across);
+  }
+
+  function press(letter) {
+    if (play.done) return;
+    Object.assign(play, L.type(puzzle, play, letter));
+    settle();
+    moved();
+  }
+  function erase() {
+    if (play.done) return;
+    Object.assign(play, L.erase(puzzle, play));
+    moved();
+  }
+  function clearCell() {
+    if (play.done || play.fill[play.cell] === ' ' || L.locked(play.marks, play.cell)) return;
+    Object.assign(play, L.erase(puzzle, play));
+    moved();
+  }
+
+  function moveArrow(dr, dc) {
+    if (play.done) return;
+    const across = dc !== 0;
+    // The first press turns to face that way, as tapping a square would.
+    if (across !== play.across) { play.across = across; return moved(); }
+    goTo(L.arrow(puzzle, play.cell, dr, dc), across);
+  }
+
+  // A full grid: finished, or told it isn't, once for each set of letters.
+  function settle() {
+    if (!L.isFull(play.fill)) return;
+    if (L.isRight(puzzle, play.fill)) return finish(true);
+    if (play.fill === play.missed) return;
+    play.missed = play.fill;
+    play.misses++;
+    haptic('tick');
+    renderTools();
+    say('The grid is full, but something’s wrong', 3200);
+  }
+
+  function finish(won) {
+    tick();
+    play.done = true;
+    play.won = won;
+    haptic('tick');
+    report();
+    save();
+    say('');
+    render();
+  }
+
+  // Help that would end a clean solve, and giving up, take two taps. Once the
+  // solve isn't clean, help is a single tap.
+  let armed = null, armTimer = 0;
+  function disarm() {
+    clearTimeout(armTimer);
+    if (!armed) return;
+    armed = null;
+    renderTools();
+  }
+  function arm(id) {
+    disarm();
+    armed = id;
+    const b = $(id);
+    b.classList.add('sure');
+    b.replaceChildren('Sure?');
+    armTimer = setTimeout(disarm, 3000);
+  }
+  const needsSure = id => id === 'giveUpBtn' || L.clean(play);
+
+  function askCheck() {
+    if (play.done || play.checks >= L.CHECKS) return;
+    const e = here();
+    if (!L.canCheck(play, e)) return say('Nothing new to check in this word');
+    if (armed !== 'checkBtn' && needsSure('checkBtn')) return arm('checkBtn');
+    haptic();
+    Object.assign(play, L.check(puzzle, play, e));
+    play.checks++;
+    renderTools();
+    moved();
+  }
+
+  function askReveal() {
+    if (play.done || play.reveals >= L.REVEALS) return;
+    if (L.locked(play.marks, play.cell)) return say('This letter is already right');
+    if (armed !== 'revealBtn' && needsSure('revealBtn')) return arm('revealBtn');
+    haptic();
+    Object.assign(play, L.reveal(puzzle, play, play.cell));
+    play.reveals++;
+    renderTools();
+    settle();
+    if (!play.done) moved();
+  }
+
+  function askGiveUp() {
+    if (play.done) return;
+    if (armed !== 'giveUpBtn') return arm('giveUpBtn');
+    play.gaveUp = true;
+    finish(false);
+  }
+
+  // Today's result, for the hub's home screen.
+  function report() {
+    // Finished in the moments after midnight: that day's over, so the hub's new day stays open.
+    if (L.dayNumber(Clock.now(), D.epoch) !== today) return;
+    const rec = state.days[today];
+    if (!rec || !rec.done) return;
+    const n = helps(rec);
+    const text = rec.won ? `${L.clock(rec.ms)}, ${n ? `${n} ${n === 1 ? 'help' : 'helps'}` : 'clean'}` : 'Gave up';
+    try { localStorage.setItem('hub.cluey', JSON.stringify({ date: Clock.now().toDateString(), text })); } catch {}
+  }
+
+  function share() {
+    const text = `${L.shareText(today, puzzle, play)}\n${SITE}`;
+    if (app) return toApp({ type: 'share', title: 'Cluey', text });
+    if (navigator.share) return navigator.share({ text }).catch(() => {});
+    navigator.clipboard.writeText(text).then(() => say('Copied to share'), () => {});
+  }
+
+  // ---- keyboard ----
+  const ROWS = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
+  const backspace = '<svg width="22" height="18" viewBox="0 0 22 18" aria-hidden="true"><path d="M7.5 3.5h11a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-11L2.5 9zM11 6.5l5 5M16 6.5l-5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const turnIcon = '<svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5.5h10.5M10.5 2.5l3 3-3 3M6.5 8v9.5M3.5 14.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  $('keys').replaceChildren(...ROWS.map((r, i) => {
+    const row = el('div', 'krow');
+    if (i === 1) row.append(el('span', 'spacer'));
+    for (const ch of r) {
+      const k = el('button', 'key', ch);
+      k.type = 'button';
+      k.dataset.key = ch;
+      row.append(k);
+    }
+    if (i === 1) row.append(el('span', 'spacer'));
+    if (i === 2) {
+      const flip = el('button', 'key wide');
+      flip.type = 'button'; flip.dataset.key = 'turn'; flip.setAttribute('aria-label', 'Turn between across and down');
+      flip.innerHTML = turnIcon;
+      const del = el('button', 'key wide');
+      del.type = 'button'; del.dataset.key = 'erase'; del.setAttribute('aria-label', 'Delete');
+      del.innerHTML = backspace;
+      row.prepend(flip);
+      row.append(del);
+    }
+    return row;
+  }));
+  function hit(k) {
+    haptic();
+    if (k.dataset.key === 'turn') turn();
+    else if (k.dataset.key === 'erase') erase();
+    else press(k.dataset.key);
+  }
+  // Keys act on touch-down: a click waits for the finger to lift, and two
+  // thumbs typing fast overlap, which loses letters. A click with no pointer
+  // behind it is Tab and Enter, or a screen reader.
+  let holding = 0;
+  const stopHolding = () => { clearTimeout(holding); clearInterval(holding); };
+  $('keys').addEventListener('pointerdown', e => {
+    const k = e.target.closest('.key');
+    if (!k) return;
+    hit(k);
+    // Holding delete keeps deleting, as on a phone's own keyboard.
+    stopHolding();
+    if (k.dataset.key === 'erase') holding = setTimeout(() => { holding = setInterval(erase, 90); }, 380);
+  });
+  for (const type of ['pointerup', 'pointercancel']) addEventListener(type, stopHolding);
+  $('keys').addEventListener('click', e => {
+    const k = e.target.closest('.key');
+    if (k && (e.detail === 0 || e.pointerType === '')) hit(k);
+  });
+  // Buttons never take a tap's focus, so a real keyboard's Enter always means
+  // "next clue".
+  $('play').addEventListener('pointerdown', e => { if (e.target.closest('button')) e.preventDefault(); });
+
+  // Squares answer on touch-down as well; a click with no pointer is a screen reader.
+  $('grid').addEventListener('pointerdown', e => {
+    const c = e.target.closest('.cell');
+    if (!c) return;
+    e.preventDefault();
+    tapCell(Number(c.dataset.cell));
+  });
+  $('grid').addEventListener('click', e => {
+    const c = e.target.closest('.cell');
+    if (c && e.detail === 0) tapCell(Number(c.dataset.cell));
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented || play.done || openDialog()) return;
+    const onButton = e.target instanceof Element && e.target.closest('button, a');
+    if (/^[a-z]$/i.test(e.key)) {
+      e.preventDefault();
+      // Off the last button clicked, so Enter goes to the game.
+      if (e.target instanceof HTMLElement) e.target.blur();
+      return press(e.key.toLowerCase());
+    }
+    if (e.key === 'Backspace') { e.preventDefault(); return erase(); }
+    if (e.key === 'Delete') { e.preventDefault(); return clearCell(); }
+    const way = { ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] }[e.key];
+    if (way) { e.preventDefault(); return moveArrow(...way); }
+    // Enter or Space on a button reached with Tab still presses that button.
+    if (onButton) return;
+    if (e.key === 'Enter') { e.preventDefault(); return step(e.shiftKey ? -1 : 1); }
+    if (e.key === ' ') { e.preventDefault(); return turn(); }
+  });
+
+  $('say').addEventListener('click', () => step(1));
+  $('nextBtn').addEventListener('click', () => step(1));
+  $('prevBtn').addEventListener('click', () => step(-1));
+  $('checkBtn').addEventListener('click', askCheck);
+  $('revealBtn').addEventListener('click', askReveal);
+  $('giveUpBtn').addEventListener('click', askGiveUp);
+  $('cluesBtn').addEventListener('click', () => openSheet('cluesSheet'));
+  $('resClues').addEventListener('click', () => openSheet('cluesSheet'));
+  $('resShare').addEventListener('click', share);
+  $('helpBtn').addEventListener('click', () => openSheet('helpSheet'));
+  $('statsBtn').addEventListener('click', () => openSheet('statsSheet'));
+  $('cluesBody').addEventListener('click', e => {
+    const row = e.target.closest('.row');
+    if (!row) return;
+    $('cluesSheet').close();
+    if (play.done) return;
+    const entry = puzzle.entries[Number(row.dataset.entry)];
+    const gap = L.firstGap(play.fill, entry);
+    goTo(gap === undefined ? entry.cells[0] : gap, entry.across);
+  });
+
+  // Android Back: close a sheet. After that the app goes back to the hub.
+  window.ladderBack = () => {
+    const d = openDialog();
+    if (d) { d.close(); return true; }
+    return false;
+  };
+  function tellBack() { toApp({ type: 'back', enabled: !!openDialog() }); }
+
+  new ResizeObserver(() => { if (puzzle) fit(); }).observe($('stage'));
+
+  // A new day while the game sits open (or comes back from the background).
+  function checkDay() {
+    const day = L.dayNumber(Clock.now(), D.epoch);
+    if (day !== today) {
+      // A daily in hand at midnight is finished first; it still counts for its day.
+      if (state.mode === 'daily' && (play.ms > 0 || play.fill !== L.blank(puzzle)) && !play.done && Clock.playing()) return;
+      tick();
+      save();
+      today = day;
+      mark = null;
+      $('cluesSheet').close();
+      load();
+      say('');
+      render();
+      save();
+    } else if (play.done) tickNext();
+  }
+  document.addEventListener('visibilitychange', () => {
+    tick();
+    if (document.hidden) save(); else checkDay();
+  });
+  addEventListener('pagehide', () => { tick(); save(); });
+  addEventListener('clock', checkDay);
+  setInterval(() => { if (!document.hidden) checkDay(); }, 30000);
+  setInterval(() => { tick(); }, 1000);
+  setInterval(() => { if (!play.done && !document.hidden) save(); }, 5000);
+
+  // ---- Android app bridge (absent in a browser) ----
+  const app = window.ladderApp || null;
+  function toApp(msg) {
+    if (!app) return;
+    try { app.postMessage(JSON.stringify(msg)); } catch {}
+  }
+  function haptic(kind = 'tap') { toApp({ type: 'haptic', kind }); }
+
+  // ---- boot ----
+  // Days gone by only need what the stats read.
+  for (const [d, rec] of Object.entries(state.days)) {
+    if (Number(d) === today) continue;
+    if (!rec || !rec.done) { delete state.days[d]; continue; }
+    state.days[d] = { ms: rec.ms, checks: rec.checks, reveals: rec.reveals, misses: rec.misses, done: true, won: !!rec.won, gaveUp: !!rec.gaveUp };
+  }
+  load();
+  report();
+  render();
+  save();
+  // First visit: how to play, once.
+  if (!store.get('seenHelp')) { store.set('seenHelp', true); openSheet('helpSheet'); }
+})();
+</script>
+</body>
+</html>

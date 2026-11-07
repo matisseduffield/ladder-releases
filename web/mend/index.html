@@ -1,0 +1,797 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#E8ECE5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E1412" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="../manifest.json">
+<link rel="apple-touch-icon" sizes="180x180" href="../icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Dailies">
+<meta name="description" content="Mend: a board of crossing words has been mixed up. Swap the letters back before your swaps run out.">
+<title>Mend</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect x=%223%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2212.2%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2221.4%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%223%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2212.2%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23F4C52E%22/><rect x=%2221.4%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%223%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%2212.2%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%2221.4%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/></svg>">
+<link rel="preload" href="../fonts/hanken-grotesk-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../shared.css">
+<style>
+/* Hunch's colours: green is in place, yellow is wanted elsewhere, grey is neither.
+   A tile that's been picked up goes dark, and tiles the answer put there after a
+   loss go plain. */
+:root { --hit: #1D7548; --on-hit: #F7F8F4; --near: #F4C52E; --on-near: #14211C; --miss: #6C7670; --on-miss: #F7F8F4; --pick: #14211C; --on-pick: #F7F8F4; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --hit: #3E9E6C; --on-hit: #0E1412; --miss: #3B4742; --on-miss: #E4EAE5; --pick: #E4EAE5; --on-pick: #0E1412; }
+}
+:root[data-theme="dark"] { --hit: #3E9E6C; --on-hit: #0E1412; --miss: #3B4742; --on-miss: #E4EAE5; --pick: #E4EAE5; --on-pick: #0E1412; }
+
+/* The swaps left, then the board */
+.stage-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
+.stage { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.count { flex: none; display: flex; align-items: baseline; justify-content: center; gap: 7px; min-height: 52px; padding-top: 6px; font-size: .92rem; color: var(--muted); }
+.count b { font-size: 2.1rem; font-weight: 600; line-height: 1.15; letter-spacing: -.015em; color: var(--ink); transition: color .2s; }
+.count.low b { color: var(--neg); }
+.stage.done .count { display: none; }
+.field { flex: 1; min-height: 0; display: grid; place-items: center; padding-bottom: 6px; }
+.stage.done .field { padding-top: 8px; }
+
+/* Tiles sit on the board by transform, so a swap really carries them across. The
+   wells under them keep the board's shape while a tile is away. */
+.board { --tile: 44px; position: relative; touch-action: none; user-select: none; -webkit-user-select: none; transition: width .26s ease, height .26s ease; }
+.well, .tile {
+  position: absolute; top: 0; left: 0; width: var(--tile); height: var(--tile); border-radius: 7px;
+  transform: translate(var(--x, 0), var(--y, 0)) scale(var(--s, 1));
+  transition: transform .26s cubic-bezier(.3, .7, .25, 1), width .26s ease, height .26s ease;
+}
+.well { background: var(--key); }
+.tile {
+  z-index: 1; display: grid; place-items: center; padding: 0; border: 0;
+  background: var(--miss); color: var(--on-miss);
+  font-size: calc(var(--tile) * .5); font-weight: 600; line-height: 1; text-transform: uppercase;
+  -webkit-touch-callout: none;
+  transition: transform .26s cubic-bezier(.3, .7, .25, 1), background-color .3s ease .1s, color .3s ease .1s, width .26s ease, height .26s ease, font-size .26s ease;
+}
+.tile.hit { background: var(--hit); color: var(--on-hit); cursor: default; }
+.tile:disabled { cursor: default; }
+.tile.near { background: var(--near); color: var(--on-near); }
+.tile.miss { background: var(--miss); color: var(--on-miss); }
+.tile.plain { background: var(--surface); color: var(--ink); }
+.tile.picked { --s: 1.08; z-index: 2; background: var(--pick); color: var(--on-pick); transition-delay: 0s; transition-duration: .12s; }
+.tile.moving { z-index: 2; }
+.tile.over { --s: .88; }
+.tile.dragging { --s: 1.12; z-index: 3; background: var(--pick); color: var(--on-pick); transition: background-color .12s, color .12s; cursor: grabbing; }
+.tile.bad { animation: shake .32s; }
+.board.still, .board.still .well, .board.still .tile { transition: none; }
+.board.won .tile { animation: hop .36s ease-out both; animation-delay: calc(.2s + var(--i) * 26ms); }
+.board.home .tile { transition-delay: calc(var(--i) * 18ms); }
+@keyframes shake { 20%, 60% { translate: -4px 0; } 40%, 80% { translate: 4px 0; } }
+@keyframes hop { 40% { translate: 0 -7px; } }
+
+/* A message takes the place of what's in the row, then gives it back */
+.tools { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; margin-bottom: 4px; }
+.note { font-size: .86rem; color: var(--muted); white-space: nowrap; }
+.note b { font-weight: 600; color: var(--ink); }
+.toast { top: 0; bottom: 0; left: 0; right: 76px; display: flex; align-items: center; padding: 0; transform: none; }
+.toast.show { transform: none; }
+.tool { flex: none; height: 44px; margin-right: -10px; padding: 0 10px; background: none; border: 0; border-radius: 6px; font-size: .86rem; font-weight: 600; color: var(--muted); }
+@media (hover: hover) { .tool:hover { color: var(--ink); background: var(--key); } }
+.tool.sure { color: var(--neg); }
+
+/* The worked example in How to play */
+.example { display: grid; gap: 12px; padding: 12px 14px; background: var(--bg); border-radius: 10px; font-size: .94rem; }
+.example-boards { display: flex; gap: 22px; }
+.mini { --tile: 28px; display: grid; grid-template-columns: repeat(4, var(--tile)); gap: 3px; }
+.mini span { display: grid; place-items: center; height: var(--tile); border-radius: 4px; font-size: .88rem; font-weight: 600; text-transform: uppercase; }
+.mini .hit { background: var(--hit); color: var(--on-hit); }
+.mini .near { background: var(--near); color: var(--on-near); }
+.mini .miss { background: var(--miss); color: var(--on-miss); }
+.rules { display: grid; gap: 14px; }
+.legend { display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: center; }
+.legend i { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 5px; font-size: .95rem; font-style: normal; font-weight: 600; }
+.legend .hit { background: var(--hit); color: var(--on-hit); }
+.legend .near { background: var(--near); color: var(--on-near); }
+.legend .miss { background: var(--miss); color: var(--on-miss); }
+
+/* Short phones: the result leaves the board less room, so it needs less around it */
+@media (max-height: 640px) {
+  .result { gap: 10px; padding: 12px; }
+  .result-title { font-size: 1.25rem; }
+  .result .btn { min-height: 44px; }
+  .next { min-height: 26px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board, .well, .tile, .count b { transition: none; }
+  .tile.bad, .board.won .tile { animation: none; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="top">
+      <a class="brand" href="../index.html" aria-label="All games">
+        <svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 2 8l6 6"/></svg>
+        <svg width="30" height="30" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#12838E"/><rect x="7" y="32" width="11.6" height="11.6" rx="2.4" fill="#FFFFFF"/><text x="12.8" y="41.8" font-size="10.4" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">M</text><rect x="19.7" y="32" width="11.6" height="11.6" rx="2.4" fill="#FFCF33"/><text x="25.5" y="41.8" font-size="10.4" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">N</text><rect x="32.4" y="32" width="11.6" height="11.6" rx="2.4" fill="#FFCF33"/><text x="38.2" y="41.8" font-size="10.4" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">E</text><rect x="45.099999999999994" y="32" width="11.6" height="11.6" rx="2.4" fill="#FFFFFF"/><text x="50.89999999999999" y="41.8" font-size="10.4" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">D</text><path d="M25.5,27.5C25.5,14 38.5,14 38.5,27.5" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/><path d="M21.6,24L25.5,28.5L29.4,24M34.6,24L38.5,28.5L42.4,24" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <h1 class="mark">Mend</h1>
+      </a>
+      <div class="top-right">
+        <button class="icon-btn" id="statsBtn" type="button" aria-label="Stats">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 16.5V11M10 16.5V4M16 16.5V8"/></svg>
+        </button>
+        <button class="icon-btn" id="helpBtn" type="button" aria-label="How to play">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="8"/><path d="M7.7 7.6a2.4 2.4 0 1 1 3.3 2.2c-.6.3-1 .8-1 1.5v.5"/><circle cx="10" cy="14.6" r=".4" fill="currentColor"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="modes">
+      <div class="tabs" role="tablist" aria-label="Mode">
+        <button class="tab" id="tabToday" role="tab" type="button">Today</button>
+        <button class="tab" id="tabPractice" role="tab" type="button">Practice</button>
+      </div>
+      <p class="meta" id="meta"></p>
+    </div>
+  </header>
+
+  <main class="stage-wrap">
+    <div class="stage" id="stage">
+      <p class="count" id="count" aria-live="polite"></p>
+      <div class="field" id="field"><div class="board" id="board" role="group" aria-label="Board"></div></div>
+    </div>
+  </main>
+
+  <footer>
+    <div id="play">
+      <div class="tools">
+        <p class="toast" id="toast" role="status"></p>
+        <p class="note" id="note"></p>
+        <button class="tool" id="giveUpBtn" type="button">Give up</button>
+      </div>
+    </div>
+    <section class="result" id="result" aria-live="polite" hidden>
+      <div class="result-head">
+        <p class="result-title" id="resTitle"></p>
+        <p class="result-tag" id="resTag"></p>
+      </div>
+      <div class="actions">
+        <button class="btn btn-secondary" id="resSecond" type="button"></button>
+        <button class="btn btn-primary" id="resFirst" type="button"></button>
+      </div>
+      <a class="next" id="resNext" hidden></a>
+      <p class="result-foot" id="resFoot"></p>
+    </section>
+  </footer>
+</div>
+
+<dialog class="sheet" id="helpSheet" aria-labelledby="helpTitle">
+  <div class="sheet-head">
+    <h2 id="helpTitle">How to play</h2>
+    <button class="icon-btn" type="button" data-close aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m4 4 10 10M14 4 4 14"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <p>Every line of tiles is a real word, but the letters have been mixed up. Put them back before your swaps run out. Tap one tile and then another to swap them, or drag one onto the other. A swap can’t be undone.</p>
+    <div class="rules">
+      <div class="legend"><i class="hit">a</i><p>In place. It stays put.</p></div>
+      <div class="legend"><i class="near">a</i><p>Wanted elsewhere in a word this tile is part of. Where words cross, it could be either.</p></div>
+      <div class="legend"><i class="miss">a</i><p>Not wanted in this tile’s own words. It may belong in another.</p></div>
+    </div>
+    <div class="example">
+      <div class="example-boards" id="example" aria-hidden="true"></div>
+      <span>The words are <b>TOE</b> and <b>GOAT</b>. Swap the top A with the yellow T in the row and both go green. The E and the last T are now grey: neither is wanted in its own word, so each belongs in the other’s. One more swap finishes it.</span>
+    </div>
+    <p>A word only lights as many of a letter as it still needs. If a word shows two Es and wants one more, one is yellow and one grey. A grey tile always means its words already show every one they need.</p>
+    <p>Each puzzle has one solution, and you get three swaps more than the fewest it can be done in. What’s left at the end is your score. The week gets harder: bigger boards, fewer tiles in place and trickier openings, some showing a real word in the wrong place.</p>
+    <p class="muted">A new puzzle arrives every midnight. Want more? <b>Practice</b> deals as many as you like.</p>
+    <button class="btn btn-primary" type="button" data-close>Play</button>
+  </div>
+</dialog>
+
+<dialog class="sheet" id="statsSheet" aria-labelledby="statsTitle">
+  <div class="sheet-head">
+    <h2 id="statsTitle">Stats</h2>
+    <button class="icon-btn" type="button" data-close aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m4 4 10 10M14 4 4 14"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body" id="statsBody"></div>
+</dialog>
+
+<!-- Bump ?v= when these change, so browsers never pair this page with an old copy. -->
+<script src="days.js?v=2"></script>
+<script src="lib.js?v=1"></script>
+<script src="../clock.js?v=2"></script>
+<script src="../pwa.js"></script>
+<script src="../next.js?v=8"></script>
+<script>
+(() => {
+  const L = window.MendLib, D = window.MendDays;
+  const $ = id => document.getElementById(id);
+  const locale = navigator.language || 'en';
+  // Where the game lives on the web; shared results link here.
+  const SITE = `${location.hostname === 'appassets.androidplatform.net' ? 'https://dailies.matisseduffield.workers.dev' : location.origin}/mend/index.html`;
+  const SAID = { hit: 'in place', near: 'wanted elsewhere in its word', miss: 'not wanted here' };
+
+  const store = {
+    get(k) { try { return JSON.parse(localStorage.getItem('mend.' + k)); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem('mend.' + k, JSON.stringify(v)); } catch {} },
+  };
+
+  // ---- state ----
+  // days: { [day]: { moves: [[place, place]...], done, won, gaveUp, left } };
+  // practice: the same plus `at`, its place in the puzzle list; mode: what's on
+  // screen. dealt: which build of the puzzles this was played on, since swaps only
+  // make sense against the board they were made on.
+  const DEALT = 1;
+  const saved = store.get('state') || {};
+  const fresh = saved.dealt === DEALT;
+  const inList = at => Number.isInteger(at) && at >= D.days && at < D.seeds.length / 3;
+  const practice = fresh && saved.practice && inList(saved.practice.at) ? saved.practice : null;
+  const state = {
+    dealt: DEALT,
+    days: saved.days && typeof saved.days === 'object' ? saved.days : {},
+    practice,
+    mode: saved.mode === 'practice' && practice ? 'practice' : 'daily',
+  };
+  // A rebuild moves the boards: finished days keep their result, and a game
+  // still going starts again rather than replay onto the wrong letters.
+  for (const d of Object.keys(state.days)) {
+    const rec = state.days[d];
+    if (!rec || typeof rec !== 'object' || (!fresh && !rec.done)) delete state.days[d];
+  }
+  const save = () => store.set('state', state);
+
+  let today = L.dayNumber(Clock.now(), D.epoch);
+  let puzzle, play;            // the puzzle on screen and its progress
+  let picked = null;           // the place of the first tile of a swap
+  let cursor = 0;              // the place keyboard focus is at
+  let settling = false;        // a finish is playing out; the result follows
+  let timers = [];
+
+  // Keeps only swaps that could really have been made, so a damaged save can
+  // never put a false board on screen.
+  function checked(rec) {
+    const board = [...puzzle.start];
+    const n = board.length;
+    const moves = [];
+    for (const m of Array.isArray(rec.moves) ? rec.moves : []) {
+      if (!Array.isArray(m) || !(m[0] >= 0 && m[0] < n && m[1] >= 0 && m[1] < n)) break;
+      if (moves.length === puzzle.swaps || L.refusal(board, puzzle.answer, m[0], m[1])) break;
+      [board[m[0]], board[m[1]]] = [board[m[1]], board[m[0]]];
+      moves.push([m[0], m[1]]);
+    }
+    rec.moves = moves;
+    const won = L.solved(board, puzzle.answer);
+    if (won || moves.length === puzzle.swaps) { rec.done = true; rec.won = won; }
+    if (won) rec.gaveUp = false;
+    if (rec.done) rec.left = puzzle.swaps - moves.length;
+    return rec;
+  }
+
+  function load() {
+    clearTimers();
+    settling = false; picked = null; press = null; cursor = 0;
+    if (state.mode === 'practice') {
+      puzzle = L.puzzle(state.practice.at, D);
+      play = checked(state.practice);
+    } else {
+      puzzle = L.daily(today, D);
+      play = checked(state.days[today] || (state.days[today] = { moves: [], done: false, won: false }));
+    }
+    buildBoard();
+  }
+  const now = () => L.replay(puzzle.start, play.moves);
+  const later = (fn, ms) => { timers.push(setTimeout(fn, ms)); };
+  function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+  const still = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ---- toast ----
+  let toastTimer = 0;
+  function say(text, ms = 2200) {
+    clearTimeout(toastTimer);
+    const t = $('toast');
+    t.textContent = text;
+    t.classList.toggle('show', !!text);
+    if (text && ms) toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+  }
+
+  // ---- the board ----
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  let tiles = [], wells = [];  // one node each per tile, kept for the whole game
+  let size = 44, gap = 4;
+
+  function buildBoard() {
+    const board = $('board');
+    board.classList.remove('won', 'home');
+    board.classList.add('still');   // a new board just appears; only play moves it
+    wells = puzzle.shape.cells.map(() => el('div', 'well'));
+    tiles = puzzle.start.map((letter, i) => {
+      const t = el('button', 'tile', letter);
+      t.type = 'button';
+      t.dataset.tile = i;
+      t.style.setProperty('--i', i);
+      return t;
+    });
+    board.replaceChildren(...wells, ...tiles);
+  }
+
+  const at = place => { const [r, c] = puzzle.shape.cells[place]; return [c * (size + gap), r * (size + gap)]; };
+  function put(node, place) {
+    const [x, y] = at(place);
+    node.style.setProperty('--x', x + 'px');
+    node.style.setProperty('--y', y + 'px');
+  }
+
+  // One tile size for the board: as big as fits, and at least 44 px while it's
+  // played on any phone. Nothing scrolls.
+  function fit() {
+    const { rows, cols } = puzzle.shape;
+    const field = $('field');
+    const style = getComputedStyle(field);
+    const w = field.clientWidth, h = field.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+    gap = 4;
+    size = Math.floor(Math.min((w - gap * (cols - 1)) / cols, (h - gap * (rows - 1)) / rows, 62));
+    if (size < 40) { gap = 3; size = Math.floor(Math.min((w - gap * (cols - 1)) / cols, (h - gap * (rows - 1)) / rows)); }
+    const board = $('board');
+    board.style.setProperty('--tile', size + 'px');
+    board.style.width = cols * size + (cols - 1) * gap + 'px';
+    board.style.height = rows * size + (rows - 1) * gap + 'px';
+  }
+
+  // Draws every tile where it belongs. Nodes stay the same from swap to swap, so
+  // moves and colour changes are real transitions.
+  function paint() {
+    const { board, tiles: places } = now();
+    const marks = L.marks(puzzle.shape, board, puzzle.answer);
+    // After a loss or giving up, tiles go to their places on the answer.
+    const lost = play.done && !play.won && !settling;
+    const home = lost ? L.homes(board, puzzle.answer) : null;
+    wells.forEach((w, i) => put(w, i));
+    const { cells } = puzzle.shape;
+    tiles.forEach((t, i) => {
+      const place = places[i];
+      const mark = marks[place];
+      put(t, lost ? home[place] : place);
+      t.classList.remove('hit', 'near', 'miss', 'plain');
+      t.classList.add(lost && mark !== 'hit' ? 'plain' : mark);
+      t.classList.toggle('picked', place === picked);
+      t.tabIndex = place === cursor ? 0 : -1;
+      const [r, c] = cells[lost ? home[place] : place];
+      t.setAttribute('aria-label', `Row ${r + 1}, column ${c + 1}: ${t.textContent.toUpperCase()}, ${lost ? 'from the answer' : SAID[mark]}`);
+      t.setAttribute('aria-pressed', String(place === picked));
+      t.disabled = play.done;
+    });
+  }
+
+  function renderCount() {
+    const left = puzzle.swaps - play.moves.length;
+    const c = $('count');
+    c.classList.toggle('low', left <= 3);
+    c.replaceChildren(el('b', '', String(left)), left === 1 ? 'swap left' : 'swaps left');
+    const fewest = el('b', '', String(puzzle.shape.fewest));
+    $('note').replaceChildren('Can be done in ', fewest);
+  }
+
+  const dateOf = day => { const [y, m, d] = D.epoch.split('-').map(Number); return new Date(y, m - 1, d + day - 1); };
+  const dayFormat = new Intl.DateTimeFormat(locale, { weekday: 'short', day: 'numeric', month: 'short' });
+
+  function renderHeader() {
+    const daily = state.mode === 'daily';
+    $('tabToday').setAttribute('aria-selected', String(daily));
+    $('tabPractice').setAttribute('aria-selected', String(!daily));
+    const meta = $('meta');
+    if (daily) return meta.replaceChildren(`No. ${today} · ${dayFormat.format(dateOf(today))}`);
+    const b = el('button', 'meta-btn', 'New puzzle');
+    b.type = 'button';
+    b.addEventListener('click', startPractice);
+    meta.replaceChildren(b);
+  }
+
+  const wonDays = () => Object.keys(state.days).filter(d => state.days[d].won).map(Number);
+
+  function renderResult() {
+    const daily = state.mode === 'daily';
+    const left = play.left, best = puzzle.shape.spare;
+    $('resTitle').textContent = play.won ? `${left} ${left === 1 ? 'swap' : 'swaps'} left` : 'The answer';
+    const tag = $('resTag');
+    tag.textContent = play.gaveUp ? 'Gave up' : !play.won ? 'Out of swaps' : left === best ? 'Fewest possible' : `Best was ${best}`;
+    tag.classList.toggle('good', !!play.won && left === best);
+    tag.classList.toggle('bad', !play.won);
+    $('resFirst').textContent = daily ? 'Share' : 'New puzzle';
+    $('resSecond').textContent = daily ? 'Practice' : 'Share';
+    showNext($('resNext'), 'mend', daily);
+    tickNext();
+  }
+
+  function tickNext() {
+    const foot = $('resFoot');
+    if (!play.done) return;
+    const rec = state.days[today];
+    if (!rec || !rec.done) return foot.replaceChildren(el('span', '', 'Today’s puzzle is still to do'));
+    const clock = Clock.now();
+    const midnight = new Date(clock.getFullYear(), clock.getMonth(), clock.getDate() + 1);
+    const mins = Math.max(1, Math.ceil((midnight - clock) / 60000));
+    const left = el('span');
+    left.append(el('b', '', String(L.streak(wonDays(), today))), ' day streak');
+    foot.replaceChildren(left, el('span', '', `Next puzzle in ${mins >= 60 ? `${Math.floor(mins / 60)} h ` : ''}${mins % 60} min`));
+  }
+
+  function render() {
+    renderHeader();
+    renderCount();
+    resetGiveUp();
+    const over = play.done && !settling;
+    $('play').hidden = over;
+    $('result').hidden = !over;
+    $('stage').classList.toggle('done', over);
+    if (over) renderResult();
+    fit();
+    paint();
+    const board = $('board');
+    if (board.classList.contains('still')) { void board.offsetWidth; board.classList.remove('still'); }
+    tellBack();
+  }
+
+  // ---- stats ----
+  function renderStats() {
+    const days = Object.keys(state.days).map(Number).filter(d => state.days[d].done);
+    const body = $('statsBody');
+    if (!days.length) return body.replaceChildren(el('p', 'empty', 'Finish a daily puzzle to start your stats.'));
+    const won = wonDays();
+    const nums = el('div', 'numbers');
+    for (const [v, label] of [
+      [days.length, 'Played'],
+      [Math.round(won.length / days.length * 100) + '%', 'Mended'],
+      [L.streak(won, today), 'Streak'],
+      [L.bestStreak(won), 'Best streak'],
+    ]) {
+      const n = el('p', 'num');
+      n.append(el('b', '', String(v)), el('span', '', label));
+      nums.append(n);
+    }
+    // How each game went: swaps left at the end, or not finished.
+    const most = Math.max(...L.WEEK.map(d => d.spare));
+    const LABELS = [...Array.from({ length: most + 1 }, (_, i) => String(most - i)), 'Not mended'];
+    const slot = d => (state.days[d].won ? most - Math.min(state.days[d].left, most) : most + 1);
+    const counts = Array(LABELS.length).fill(0);
+    for (const d of days) counts[slot(d)]++;
+    const max = Math.max(...counts, 1);
+    const dist = el('div', 'dist');
+    dist.append(el('p', 'dist-title', 'Swaps left'));
+    counts.forEach((c, i) => {
+      const row = el('div', 'bar-row');
+      row.style.gridTemplateColumns = '82px 1fr';
+      const bar = el('div', 'bar', String(c));
+      bar.style.width = `${Math.max(8, c / max * 100)}%`;
+      if (days.includes(today) && slot(today) === i) bar.classList.add('today');
+      row.append(el('span', '', LABELS[i]), el('div'));
+      row.lastChild.append(bar);
+      dist.append(row);
+    });
+    body.replaceChildren(nums, dist);
+  }
+
+  // ---- sheets ----
+  function openSheet(id) {
+    if (id === 'statsSheet') renderStats();
+    const d = $(id);
+    if (!d.open) d.showModal();
+    tellBack();
+  }
+  for (const d of document.querySelectorAll('dialog.sheet')) {
+    d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-close]')) d.close(); });
+    d.addEventListener('close', tellBack);
+  }
+  const openDialog = () => document.querySelector('dialog.sheet[open]');
+
+  // The worked example is marked by the game's own rules.
+  (function drawExample() {
+    const shape = L.layout(['.X..', 'XXXX', '.X..']);
+    const answer = [...'tgoate'];
+    const mini = letters => {
+      const marks = L.marks(shape, letters, answer);
+      const grid = el('div', 'mini');
+      for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 4; c++) {
+          const i = shape.cells.findIndex(([y, x]) => y === r && x === c);
+          grid.append(i < 0 ? el('i') : el('span', marks[i], letters[i]));
+        }
+      }
+      return grid;
+    };
+    $('example').replaceChildren(mini([...'agotet']), mini([...'tgoaet']));
+  })();
+
+  // ---- playing ----
+  const locked = () => play.done || settling;
+
+  function refuse(place, text) {
+    haptic('tick');
+    say(text);
+    const t = tileAt(place);
+    t.classList.remove('bad');
+    void t.offsetWidth;
+    t.classList.add('bad');
+  }
+
+  const tileAt = place => tiles[now().tiles.indexOf(place)];
+
+  function tapPlace(place) {
+    if (locked()) return;
+    cursor = place;
+    const { board } = now();
+    const why = picked === null ? (board[place] === puzzle.answer[place] ? 'placed' : null) : L.refusal(board, puzzle.answer, picked, place);
+    if (why === 'placed') return refuse(place, 'Green tiles are already right');
+    if (why === 'equal') { const was = picked; picked = null; paint(); return refuse(was, 'Same letter, so no swap used'); }
+    if (picked === null) { picked = place; haptic(); say(''); return paint(); }
+    if (why === 'same') { picked = null; haptic(); return paint(); }
+    swap(picked, place);
+  }
+
+  function swap(a, b) {
+    const { tiles: places } = now();
+    for (const t of [tiles[places.indexOf(a)], tiles[places.indexOf(b)]]) {
+      t.classList.add('moving');
+      later(() => t.classList.remove('moving'), 300);
+    }
+    play.moves.push([a, b]);
+    picked = null;
+    haptic();
+    say('');
+    if (L.solved(now().board, puzzle.answer)) finish(true);
+    else if (play.moves.length === puzzle.swaps) finish(false);
+    save();
+    render();
+    // The focused tile just moved away: keyboard focus stays at its place.
+    if (!play.done && document.activeElement && document.activeElement.classList.contains('tile')) tileAt(cursor).focus();
+  }
+
+  // The last swap lands first; then a win takes a bow, and a loss goes home.
+  function finish(won) {
+    play.done = true;
+    play.won = won;
+    play.left = puzzle.swaps - play.moves.length;
+    picked = null;
+    haptic('tick');
+    report();
+    const quick = still();
+    settling = true;
+    if (won) {
+      $('board').classList.add('won');
+      later(settle, quick ? 0 : 900);
+    } else {
+      later(() => {
+        settling = false;
+        $('board').classList.add('home');
+        paint();
+        later(settle, quick ? 0 : 950);
+      }, quick ? 0 : 420);
+    }
+  }
+  function settle() {
+    settling = false;
+    $('board').classList.remove('home');
+    render();
+  }
+
+  // Giving up takes two taps, and shows the answer.
+  let sureTimer = 0;
+  function resetGiveUp() {
+    clearTimeout(sureTimer);
+    $('giveUpBtn').textContent = 'Give up';
+    $('giveUpBtn').classList.remove('sure');
+  }
+  function giveUp() {
+    if (locked()) return;
+    if (!$('giveUpBtn').classList.contains('sure')) {
+      $('giveUpBtn').textContent = 'Sure?';
+      $('giveUpBtn').classList.add('sure');
+      sureTimer = setTimeout(resetGiveUp, 3000);
+      return;
+    }
+    play.gaveUp = true;
+    say('');
+    finish(false);
+    save(); render();
+  }
+
+  // Today's result, for the hub's home screen.
+  function report() {
+    // Finished in the moments after midnight: that day's over, so the hub's new day stays open.
+    if (L.dayNumber(Clock.now(), D.epoch) !== today) return;
+    const rec = state.days[today];
+    if (!rec || !rec.done) return;
+    const text = rec.won ? `${rec.left} of ${L.daily(today, D).swaps} swaps left` : rec.gaveUp ? 'Gave up' : 'Out of swaps';
+    try { localStorage.setItem('hub.mend', JSON.stringify({ date: Clock.now().toDateString(), text })); } catch {}
+  }
+
+  function share() {
+    const text = `${L.shareText(state.mode === 'daily' ? today : 0, puzzle.start, puzzle.answer, play.moves, puzzle.swaps, play)}\n${SITE}`;
+    if (app) return toApp({ type: 'share', title: 'Mend', text });
+    if (navigator.share) return navigator.share({ text }).catch(() => {});
+    navigator.clipboard.writeText(text).then(() => {
+      // The toast is hidden on the result screen, so the button says it.
+      const b = $(state.mode === 'daily' ? 'resFirst' : 'resSecond');
+      b.textContent = 'Copied';
+      setTimeout(() => { b.textContent = 'Share'; }, 1600);
+    }, () => {});
+  }
+
+  function startPractice() {
+    const spares = Math.floor(D.seeds.length / 3) - D.days;
+    state.practice = { at: D.days + Math.floor(Math.random() * spares), moves: [], done: false, won: false };
+    state.mode = 'practice';
+    save(); load(); say(''); render();
+  }
+  function setMode(mode) {
+    if (state.mode === mode) return;
+    if (mode === 'practice' && (!state.practice || state.practice.done)) return startPractice();
+    state.mode = mode;
+    save(); load(); say(''); render();
+  }
+
+  // ---- tap and drag ----
+  // A press becomes a drag once it moves; otherwise it's a tap. Under a finger the
+  // tile rides above the touch, so it can be seen, and that's what's aimed.
+  let press = null;
+  const placeOf = node => now().tiles[Number(node.dataset.tile)];
+
+  function aimed(x, y) {
+    const box = $('board').getBoundingClientRect();
+    const col = Math.floor((x - box.left + gap / 2) / (size + gap));
+    const row = Math.floor((y - box.top + gap / 2) / (size + gap));
+    const place = puzzle.shape.cells.findIndex(([r, c]) => r === row && c === col);
+    return place < 0 ? null : place;
+  }
+  function endPress() {
+    if (!press) return null;
+    const p = press;
+    press = null;
+    p.node.classList.remove('dragging');
+    if (p.over !== null) tileAt(p.over).classList.remove('over');
+    return p;
+  }
+
+  const boardEl = $('board');
+  boardEl.addEventListener('pointerdown', e => {
+    // Aimed by the grid, not by what's under the finger: a quick tap can land while
+    // the last swap's tiles are still sliding home.
+    const place = aimed(e.clientX, e.clientY);
+    if (place === null || locked() || e.button || press) return;
+    const node = tileAt(place);
+    node.setPointerCapture(e.pointerId);
+    press = { id: e.pointerId, node, place, x: e.clientX, y: e.clientY, drag: false, over: null, lift: e.pointerType === 'mouse' ? 0 : size * .7 };
+  });
+  boardEl.addEventListener('pointermove', e => {
+    if (!press || e.pointerId !== press.id) return;
+    const dx = e.clientX - press.x, dy = e.clientY - press.y;
+    const away = Math.hypot(dx, dy);
+    if (!press.drag) {
+      if (away < 8) return;
+      if (now().board[press.place] === puzzle.answer[press.place]) return;
+      press.drag = true;
+      picked = null;
+      paint();
+      press.node.classList.add('dragging');
+    }
+    // The lift grows with the move, so the tile never jumps.
+    const lift = Math.min(press.lift, away);
+    const [x, y] = at(press.place);
+    press.node.style.setProperty('--x', x + dx + 'px');
+    press.node.style.setProperty('--y', y + dy - lift + 'px');
+    let over = aimed(e.clientX, e.clientY - lift);
+    if (over === press.place) over = null;
+    if (over !== press.over) {
+      if (press.over !== null) tileAt(press.over).classList.remove('over');
+      if (over !== null) tileAt(over).classList.add('over');
+      press.over = over;
+    }
+  });
+  boardEl.addEventListener('pointerup', e => {
+    if (!press || e.pointerId !== press.id) return;
+    const p = endPress();
+    if (locked()) return;
+    if (!p.drag) return tapPlace(p.place);
+    if (p.over === null) return paint();
+    const why = L.refusal(now().board, puzzle.answer, p.place, p.over);
+    if (why) {
+      paint();
+      return refuse(p.over, why === 'placed' ? 'Green tiles are already right' : 'Same letter, so no swap used');
+    }
+    cursor = p.over;
+    swap(p.place, p.over);
+  });
+  boardEl.addEventListener('pointercancel', e => {
+    if (press && e.pointerId === press.id) { endPress(); paint(); }
+  });
+  boardEl.addEventListener('lostpointercapture', e => {
+    if (press && e.pointerId === press.id) { endPress(); paint(); }
+  });
+  // No pointer behind a click means the keyboard or a screen reader.
+  boardEl.addEventListener('click', e => {
+    const node = e.target.closest('.tile');
+    if (node && e.detail === 0) tapPlace(placeOf(node));
+  });
+
+  // Arrow keys walk the board: the nearest tile that way, keeping to the line.
+  const WAYS = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
+  boardEl.addEventListener('keydown', e => {
+    const way = WAYS[e.key];
+    if (!way || locked()) return;
+    e.preventDefault();
+    const [r, c] = puzzle.shape.cells[cursor];
+    let best = null, score = Infinity;
+    puzzle.shape.cells.forEach(([y, x], place) => {
+      const along = (y - r) * way[0] + (x - c) * way[1];
+      if (along <= 0) return;
+      const off = Math.abs((y - r) * way[1]) + Math.abs((x - c) * way[0]);
+      if (along + off * 3 < score) { score = along + off * 3; best = place; }
+    });
+    if (best === null) return;
+    cursor = best;
+    paint();
+    tileAt(best).focus();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && picked !== null && !openDialog()) { picked = null; paint(); }
+  });
+
+  $('giveUpBtn').addEventListener('click', giveUp);
+  $('resFirst').addEventListener('click', () => state.mode === 'daily' ? share() : startPractice());
+  $('resSecond').addEventListener('click', () => state.mode === 'daily' ? setMode('practice') : share());
+  $('tabToday').addEventListener('click', () => setMode('daily'));
+  $('tabPractice').addEventListener('click', () => setMode('practice'));
+  $('helpBtn').addEventListener('click', () => openSheet('helpSheet'));
+  $('statsBtn').addEventListener('click', () => openSheet('statsSheet'));
+
+  // Android Back: close a sheet, then leave practice. After that the app
+  // goes back to the hub.
+  window.ladderBack = () => {
+    const d = openDialog();
+    if (d) { d.close(); return true; }
+    if (state.mode !== 'practice') return false;
+    setMode('daily');
+    return true;
+  };
+  function tellBack() { toApp({ type: 'back', enabled: !!openDialog() || state.mode === 'practice' }); }
+
+  addEventListener('resize', () => { fit(); paint(); });
+  // A new day while the game sits open (or comes back from the background).
+  function checkDay() {
+    const day = L.dayNumber(Clock.now(), D.epoch);
+    if (day !== today) {
+      // A daily in hand at midnight is finished first; it still counts for its day.
+      if (state.mode === 'daily' && play.moves.length && !play.done && Clock.playing()) return;
+      today = day;
+      if (state.mode === 'daily') load();
+      say('');
+      render();
+    } else if (play.done && !settling) tickNext();
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkDay(); });
+  addEventListener('clock', checkDay);
+  setInterval(() => { if (!document.hidden) checkDay(); }, 30000);
+
+  // ---- Android app bridge (absent in a browser) ----
+  const app = window.ladderApp || null;
+  function toApp(msg) {
+    if (!app) return;
+    try { app.postMessage(JSON.stringify(msg)); } catch {}
+  }
+  function haptic(kind = 'tap') { toApp({ type: 'haptic', kind }); }
+
+  // ---- boot ----
+  // Back on a new day: open on today's puzzle, not yesterday's practice.
+  if (store.get('lastDay') !== today) { store.set('lastDay', today); state.mode = 'daily'; }
+  load();
+  report();
+  render();
+  // First visit: how to play, once.
+  if (!store.get('seenHelp')) { store.set('seenHelp', true); openSheet('helpSheet'); }
+})();
+</script>
+</body>
+</html>

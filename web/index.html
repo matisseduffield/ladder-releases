@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#E8ECE5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E1412" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Dailies">
+<meta name="description" content="Dailies: a few small daily games, new every day. Free, no ads.">
+<title>Dailies</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect x=%223%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2212.2%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2221.4%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%223%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2212.2%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23F4C52E%22/><rect x=%2221.4%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%223%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%2212.2%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%2221.4%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/></svg>">
+<link rel="preload" href="fonts/hanken-grotesk-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="shared.css">
+<style>
+/* The list runs past a short screen: the page grows, so the bottom padding stays clear of the home bar */
+.app { height: auto; min-height: 100dvh; }
+.today { padding-top: 14px; }
+.today h2 { font-size: 1.6rem; font-weight: 600; letter-spacing: -.015em; line-height: 1.2; }
+.today p { margin-top: 2px; font-size: .92rem; color: var(--muted); }
+
+/* A row for each game */
+.games { display: grid; gap: 8px; margin-top: 16px; }
+.game {
+  display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 12px;
+  min-height: 64px; padding: 9px 14px 9px 12px;
+  background: var(--surface); border-radius: 10px;
+  color: inherit; text-decoration: none;
+}
+.game:active { background: var(--key); }
+.game b { display: block; font-size: 1.05rem; font-weight: 600; line-height: 1.3; }
+.game span { display: block; font-size: .88rem; line-height: 1.35; color: var(--muted); }
+.game .state { color: var(--faint); }
+.game.done .state { color: var(--pos); }
+
+.foot { margin-top: auto; padding: 18px 0 8px; text-align: center; }
+.get-app { margin: 0 0 4px; font-size: .86rem; color: var(--muted); }
+.get-app .link { font-size: .86rem; text-decoration: none; }
+.install-hint { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 0; font-size: .84rem; line-height: 1.35; color: var(--muted); }
+.install-hint button { flex: none; width: 44px; height: 44px; margin: -10px -12px -10px 0; padding: 0; background: none; border: 0; font-size: 1.2rem; color: var(--muted); }
+.legal { display: flex; justify-content: center; gap: 48px; }
+.legal a { padding: 12px 8px; font-size: .84rem; color: var(--muted); text-decoration: none; }
+
+/* App update (Android app only) */
+.update { display: grid; gap: 14px; margin-top: 8px; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.update-title { font-weight: 600; line-height: 1.3; }
+.update-sub, .update-msg { font-size: .84rem; color: var(--muted); }
+.update-notes { margin: 0; padding: 0 0 0 16px; font-size: .88rem; line-height: 1.4; }
+.share-all { width: 100%; margin-top: 14px; }
+.update-progress { display: flex; align-items: center; gap: 12px; min-height: 46px; }
+.update-track { flex: 1; height: 6px; border-radius: 3px; background: var(--accent-soft); overflow: hidden; }
+.update-track span { display: block; height: 100%; width: 0; border-radius: 3px; background: var(--accent); transition: width .2s; }
+.update-pct { min-width: 3.2ch; text-align: right; font-size: .86rem; font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { .update-track span { transition: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="top">
+      <div class="brand">
+        <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="3" width="7.6" height="7.6" rx="1.9" fill="#2C53C4"/><rect x="12.2" y="3" width="7.6" height="7.6" rx="1.9" fill="#2C53C4"/><rect x="21.4" y="3" width="7.6" height="7.6" rx="1.9" fill="#2C53C4"/><rect x="3" y="12.2" width="7.6" height="7.6" rx="1.9" fill="#2C53C4"/><rect x="12.2" y="12.2" width="7.6" height="7.6" rx="1.9" fill="#F4C52E"/><rect x="21.4" y="12.2" width="7.6" height="7.6" rx="1.9" fill="#A9B8E6"/><rect x="3" y="21.4" width="7.6" height="7.6" rx="1.9" fill="#A9B8E6"/><rect x="12.2" y="21.4" width="7.6" height="7.6" rx="1.9" fill="#A9B8E6"/><rect x="21.4" y="21.4" width="7.6" height="7.6" rx="1.9" fill="#A9B8E6"/></svg>
+        <h1 class="mark">Dailies</h1>
+      </div>
+      <div class="top-right">
+        <button class="version" id="version" type="button" title="Check for updates" hidden></button>
+      </div>
+    </div>
+  </header>
+
+  <section class="update" id="updateCard" aria-label="App update" hidden>
+    <div>
+      <p class="update-title" id="updateTitle">Update available</p>
+      <p class="update-sub" id="updateSub"></p>
+    </div>
+    <ul class="update-notes" id="updateNotes" hidden></ul>
+    <p class="update-msg" id="updateMsg" hidden></p>
+    <div class="update-progress" id="updateProgress" hidden>
+      <div class="update-track"><span id="updateBar"></span></div>
+      <span class="update-pct" id="updatePct">0%</span>
+    </div>
+    <div class="actions" id="updateActions">
+      <button class="btn btn-secondary" id="updateLater" type="button">Not now</button>
+      <button class="btn btn-primary" id="updateGo" type="button">Update</button>
+    </div>
+  </section>
+
+  <p class="install-hint" id="installHint" hidden><span>Keep Dailies on your iPhone: tap Share, then Add to Home Screen.</span><button type="button" aria-label="Dismiss">×</button></p>
+  <main>
+    <div class="today">
+      <h2 id="date"></h2>
+      <p id="progress"></p>
+    </div>
+    <nav class="games" id="games" aria-label="Today's games"></nav>
+    <button class="btn btn-primary share-all" id="shareAll" type="button" hidden>Share today</button>
+  </main>
+
+  <footer class="foot">
+    <p class="get-app" id="getApp" hidden>On Android? <a class="link" href="/app">Get the app</a>, free and offline.</p>
+    <nav class="legal" aria-label="Legal"><a href="https://teloone.au/apps/dailies/privacy/" rel="noreferrer">Privacy</a><a href="https://teloone.au/apps/dailies/terms/" rel="noreferrer">Terms</a></nav>
+  </footer>
+</div>
+
+<script src="clock.js?v=2"></script>
+<script src="pwa.js"></script>
+<script>
+(() => {
+  // Every game in the hub: its folder, its name and a line about it. A game
+  // tells the hub how today went by saving { date, text } as hub.<id>.
+  const SLUG = '<rect width="64" height="64" rx="14" fill="#1F6F54"/><g transform="translate(13.5 3.5) scale(.57)"><path d="M43 29 38 13M52 28l4-16" stroke="#F4C52E" stroke-width="4.5" stroke-linecap="round"/><path fill="#F4C52E" d="M3 53C3 48 12 47 19 45 27 43 30 35 36 30 42 25 54 25 58 33 61 39 60 48 55 52 53 54 50 55 46 55H7C4 55 3 54 3 53Z"/><g fill="#D99F14"><circle cx="24" cy="49.5" r="2.4"/><circle cx="33.5" cy="44" r="3"/><circle cx="14" cy="51" r="1.7"/><circle cx="37" cy="51" r="1.6"/></g><path d="M43 39.5Q50 48 57.5 38" fill="none" stroke="#14211C" stroke-width="2.6" stroke-linecap="round"/><path fill="#EE6A7C" stroke="#14211C" stroke-width="1.6" stroke-linejoin="round" d="M47.5 43.6c.3 4.6 1.8 7 4 6.8 2.1-.2 3-3 2.4-7.4"/><g stroke="#14211C" stroke-width="1.8"><circle cx="38" cy="11" r="7.4" fill="#fff"/><circle cx="56.5" cy="10" r="7.4" fill="#fff"/></g><circle cx="40.4" cy="13.2" r="3.1" fill="#14211C"/><circle cx="54.4" cy="7.8" r="3.1" fill="#14211C"/></g><rect x="7" y="41" width="11.6" height="11.6" rx="2.4" fill="#FFFFFF"/><text x="12.8" y="50.6" font-size="10" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">S</text><rect x="19.7" y="41" width="11.6" height="11.6" rx="2.4" fill="#FFFFFF"/><text x="25.5" y="50.6" font-size="10" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">L</text><rect x="32.4" y="41" width="11.6" height="11.6" rx="2.4" fill="#FFFFFF"/><text x="38.2" y="50.6" font-size="10" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">U</text><rect x="45.099999999999994" y="41" width="11.6" height="11.6" rx="2.4" fill="#FFFFFF"/><text x="50.89999999999999" y="50.6" font-size="10" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">G</text>';
+  const BULB = '<rect width="64" height="64" rx="14" fill="#232C66"/><path fill="#FFCF33" d="M32 6.5a13.5 13.5 0 0 0-8.1 24.3c2 1.6 2.7 3.3 2.7 5.2h10.8c0-1.9.7-3.6 2.7-5.2A13.5 13.5 0 0 0 32 6.5Z"/><rect x="27.2" y="33.6" width="9.6" height="4" rx="2" fill="#FFFFFF"/><rect x="7" y="43" width="9.6" height="9.6" rx="2" fill="#7C84A8"/><rect x="17.2" y="43" width="9.6" height="9.6" rx="2" fill="#FFCF33"/><rect x="27.4" y="43" width="9.6" height="9.6" rx="2" fill="#7C84A8"/><rect x="37.599999999999994" y="43" width="9.6" height="9.6" rx="2" fill="#2FA36B"/><rect x="47.8" y="43" width="9.6" height="9.6" rx="2" fill="#2FA36B"/>';
+  const BARS = '<rect width="64" height="64" rx="14" fill="#C2407A"/><rect x="9" y="9" width="9.5" height="9.5" rx="2.2" fill="#FFCF33"/><rect x="20.5" y="9" width="9.5" height="9.5" rx="2.2" fill="#FFCF33"/><rect x="9" y="20.5" width="9.5" height="9.5" rx="2.2" fill="#FFCF33"/><rect x="20.5" y="20.5" width="9.5" height="9.5" rx="2.2" fill="#FFCF33"/><rect x="34" y="9" width="9.5" height="9.5" rx="2.2" fill="#FFFFFF"/><rect x="45.5" y="9" width="9.5" height="9.5" rx="2.2" fill="#FFFFFF"/><rect x="34" y="20.5" width="9.5" height="9.5" rx="2.2" fill="#FFFFFF"/><rect x="45.5" y="20.5" width="9.5" height="9.5" rx="2.2" fill="#FFFFFF"/><rect x="9" y="34" width="9.5" height="9.5" rx="2.2" fill="#8FE3B4"/><rect x="20.5" y="34" width="9.5" height="9.5" rx="2.2" fill="#8FE3B4"/><rect x="9" y="45.5" width="9.5" height="9.5" rx="2.2" fill="#8FE3B4"/><rect x="20.5" y="45.5" width="9.5" height="9.5" rx="2.2" fill="#8FE3B4"/><rect x="34" y="34" width="9.5" height="9.5" rx="2.2" fill="#BFD2F8"/><rect x="45.5" y="34" width="9.5" height="9.5" rx="2.2" fill="#BFD2F8"/><rect x="34" y="45.5" width="9.5" height="9.5" rx="2.2" fill="#BFD2F8"/><rect x="45.5" y="45.5" width="9.5" height="9.5" rx="2.2" fill="#BFD2F8"/>';
+  const RINGS = '<rect width="64" height="64" rx="14" fill="#E5533D"/><text x="32" y="31" font-size="24" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#FFFFFF">578</text><rect x="9" y="38" width="14" height="14" rx="3" fill="#FFFFFF"/><text x="16" y="49.4" font-size="14" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">+</text><rect x="25" y="38" width="14" height="14" rx="3" fill="#FFFFFF"/><text x="32" y="49.4" font-size="14" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">×</text><rect x="41" y="38" width="14" height="14" rx="3" fill="#FFFFFF"/><text x="48" y="49.4" font-size="14" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">÷</text>';
+  const GRID = '<rect width="64" height="64" rx="14" fill="#2C53C4"/><rect x="10" y="10" width="44" height="44" rx="4" fill="#14211C"/><rect x="11.4" y="11.4" width="9.7" height="9.7" rx="1" fill="#FFFFFF"/><rect x="21.9" y="11.4" width="9.7" height="9.7" rx="1" fill="#FFFFFF"/><rect x="32.4" y="11.4" width="9.7" height="9.7" rx="1" fill="#FFFFFF"/><rect x="11.4" y="21.9" width="9.7" height="9.7" rx="1" fill="#FFFFFF"/><rect x="32.4" y="21.9" width="9.7" height="9.7" rx="1" fill="#FFFFFF"/><rect x="42.9" y="21.9" width="9.7" height="9.7" rx="1" fill="#FFFFFF"/><rect x="11.4" y="32.4" width="9.7" height="9.7" rx="1" fill="#BFD2F8"/><rect x="21.9" y="32.4" width="9.7" height="9.7" rx="1" fill="#FFCF33"/><rect x="32.4" y="32.4" width="9.7" height="9.7" rx="1" fill="#BFD2F8"/><rect x="42.9" y="32.4" width="9.7" height="9.7" rx="1" fill="#BFD2F8"/><rect x="21.9" y="42.9" width="9.7" height="9.7" rx="1" fill="#FFFFFF"/><rect x="32.4" y="42.9" width="9.7" height="9.7" rx="1" fill="#FFFFFF"/><rect x="42.9" y="42.9" width="9.7" height="9.7" rx="1" fill="#FFFFFF"/>';
+  const WEAVE = '<rect width="64" height="64" rx="14" fill="#12838E"/><rect x="7" y="32" width="11.6" height="11.6" rx="2.4" fill="#FFFFFF"/><text x="12.8" y="41.8" font-size="10.4" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">M</text><rect x="19.7" y="32" width="11.6" height="11.6" rx="2.4" fill="#FFCF33"/><text x="25.5" y="41.8" font-size="10.4" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">N</text><rect x="32.4" y="32" width="11.6" height="11.6" rx="2.4" fill="#FFCF33"/><text x="38.2" y="41.8" font-size="10.4" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">E</text><rect x="45.099999999999994" y="32" width="11.6" height="11.6" rx="2.4" fill="#FFFFFF"/><text x="50.89999999999999" y="41.8" font-size="10.4" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">D</text><path d="M25.5,27.5C25.5,14 38.5,14 38.5,27.5" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/><path d="M21.6,24L25.5,28.5L29.4,24M34.6,24L38.5,28.5L42.4,24" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>';
+  const ROWS = '<rect width="64" height="64" rx="14" fill="#6A48C8"/><rect x="8" y="9" width="40" height="13" rx="3" fill="#FFFFFF"/><text x="28" y="19.2" font-size="10.5" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#1D7548">1958</text><rect x="16" y="25.5" width="40" height="13" rx="3" fill="#FFCF33"/><text x="36" y="35.7" font-size="10.5" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">????</text><rect x="8" y="42" width="40" height="13" rx="3" fill="#FFFFFF"/><text x="28" y="52.2" font-size="10.5" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#1D7548">1984</text>';
+  const ROUTE = '<rect width="64" height="64" rx="14" fill="#3C9BE0"/><path d="M8,9L30,7L27,23L9,30Z" fill="#CFE6F7" stroke="#3C9BE0" stroke-width="2.2" stroke-linejoin="round"/><path d="M30,38L42,42L56,29L57,56L27,57Z" fill="#CFE6F7" stroke="#3C9BE0" stroke-width="2.2" stroke-linejoin="round"/><path d="M9,30L26,22L29,41L27,57L8,55Z" fill="#FFCF33" stroke="#3C9BE0" stroke-width="2.2" stroke-linejoin="round"/><path d="M26,22L46,27L45,47L29,41Z" fill="#2FA36B" stroke="#3C9BE0" stroke-width="2.2" stroke-linejoin="round"/><path d="M30,7L57,9L56,31L46,27L26,22Z" fill="#232C66" stroke="#3C9BE0" stroke-width="2.2" stroke-linejoin="round"/><path d="M18,44L37,34L44,17" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="44" r="4" fill="#FFFFFF"/><circle cx="44" cy="17" r="4" fill="#FFFFFF"/>';
+  const TREE = '<rect width="64" height="64" rx="14" fill="#C8682A"/><path d="M32,22C32,30 18,29 18,38M32,22C32,30 46,29 46,38" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" opacity=".9"/><rect x="19" y="10" width="26" height="13" rx="6.5" fill="#FFCF33"/><text x="32" y="19.6" font-size="8.4" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">SUN</text><rect x="5" y="38" width="26" height="13" rx="6.5" fill="#FFFFFF"/><text x="18" y="47.6" font-size="8.4" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">SET</text><rect x="33" y="38" width="26" height="13" rx="6.5" fill="#FFFFFF"/><text x="46" y="47.6" font-size="8.4" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">RISE</text>';
+  const GAMES = [
+    { id: 'slugle', name: 'Slugle', line: 'Turn today’s word into SLUG', icon: SLUG },
+    { id: 'hunch', name: 'Hunch', line: 'Find the hidden word in six tries', icon: BULB },
+    { id: 'sorted', name: 'Sorted', line: 'Find four groups of four words', icon: BARS },
+    { id: 'reach', name: 'Reach', line: 'Hit the target with six numbers', icon: RINGS },
+    { id: 'cluey', name: 'Cluey', line: 'A small crossword, slyer each day', icon: GRID },
+    { id: 'mend', name: 'Mend', line: 'Swap letters back into words', icon: WEAVE },
+    { id: 'dated', name: 'Dated', line: 'Put history in order, blind', icon: ROWS },
+    { id: 'overland', name: 'Overland', line: 'Cross the map, border by border', icon: ROUTE },
+    { id: 'splice', name: 'Splice', line: 'Link words into a tree of phrases', icon: TREE },
+  ];
+  const inApp = location.hostname === 'appassets.androidplatform.net';
+  const SITE = inApp ? 'https://dailies.matisseduffield.workers.dev' : location.origin;
+
+  const $ = id => document.getElementById(id);
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const store = {
+    get(k) { try { return JSON.parse(localStorage.getItem('hub.' + k)); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem('hub.' + k, JSON.stringify(v)); } catch {} },
+  };
+  const dateFormat = new Intl.DateTimeFormat(navigator.language || 'en', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  let shownDay = '';
+  function render() {
+    const now = Clock.now(), day = now.toDateString();
+    let done = 0;
+    shownDay = day;
+    $('date').textContent = dateFormat.format(now);
+    $('games').replaceChildren(...GAMES.map(g => {
+      const result = store.get(g.id);
+      const played = !!result && result.date === day;
+      if (played) done++;
+      const a = el('a', played ? 'game done' : 'game');
+      a.href = `${g.id}/index.html`;
+      a.innerHTML = `<svg width="40" height="40" viewBox="0 0 64 64" fill="none" aria-hidden="true">${g.icon}</svg>`;
+      const text = el('div');
+      text.append(el('b', '', g.name), el('span', '', played ? result.text : g.line));
+      a.append(text, el('span', 'state', played ? 'Done' : 'Play'));
+      return a;
+    }));
+    $('progress').textContent = done === GAMES.length ? 'All done. See you tomorrow.' : `${done} of ${GAMES.length} played today`;
+    $('shareAll').hidden = done !== GAMES.length;
+  }
+  // Every result in one message, once the day's games are done.
+  function shareAll() {
+    const lines = GAMES.map(g => `${g.name}: ${(store.get(g.id) || {}).text || ''}`);
+    const text = [`Dailies, ${dateFormat.format(Clock.now())}`, ...lines, SITE].join('\n');
+    if (window.ladderApp) return toApp({ type: 'share', title: 'Dailies', text });
+    if (navigator.share) return navigator.share({ text }).catch(() => {});
+    navigator.clipboard.writeText(text).then(() => {
+      $('shareAll').textContent = 'Copied';
+      setTimeout(() => { $('shareAll').textContent = 'Share today'; }, 1600);
+    }, () => {});
+  }
+  $('shareAll').addEventListener('click', shareAll);
+
+  // Coming back from a game, or back to the app on a new day.
+  addEventListener('pageshow', render);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
+  addEventListener('clock', render);
+  setInterval(() => { if (!document.hidden && Clock.now().toDateString() !== shownDay) render(); }, 30000);
+
+  // ---- Android app bridge (absent in a browser) ----
+  const app = window.ladderApp || null;
+  function toApp(msg) {
+    if (!app) return;
+    try { app.postMessage(JSON.stringify(msg)); } catch {}
+  }
+  // selfUpdates is off until the app says otherwise: Play builds update through
+  // the store, so there the version is a plain label with nothing to tap.
+  let appVersion = '', selfUpdates = false, updateReady = false, versionTimer = 0, updateVersion = '', updateSize = 0;
+  function showVersion(text, st) {
+    clearTimeout(versionTimer);
+    $('version').hidden = false;
+    $('version').textContent = text;
+    $('version').dataset.state = st || '';
+  }
+  function showUpdate(m) {
+    const show = (id, on) => { $(id).hidden = !on; };
+    $('updateCard').hidden = false;
+    if (m.state === 'available') {
+      updateVersion = m.version || updateVersion;
+      updateSize = m.size > 0 ? m.size : updateSize;
+      const notes = Array.isArray(m.notes) ? m.notes.filter(n => typeof n === 'string' && n).slice(0, 5) : [];
+      $('updateNotes').replaceChildren(...notes.map(n => el('li', '', n)));
+      show('updateNotes', notes.length > 0);
+    }
+    const view = {
+      available: { title: 'Update available', msg: '', actions: true, progress: false, go: 'Update' },
+      downloading: { title: 'Downloading update', msg: '', actions: false, progress: true },
+      installing: { title: 'Installing update', actions: false, progress: true, msg: 'Confirm on the next screen. The first time, Android asks you to allow installs from Dailies. Turn it on, then go back.' },
+      failed: { title: "Update didn't finish", msg: m.message || 'Something went wrong. Try again.', actions: true, progress: false, go: 'Try again' },
+    }[m.state];
+    if (!view) return;
+    $('updateTitle').textContent = view.title;
+    $('updateSub').textContent = [`Dailies ${updateVersion}`, updateSize ? `${(updateSize / 1e6).toFixed(1)} MB` : ''].filter(Boolean).join(' · ');
+    $('updateMsg').textContent = view.msg;
+    show('updateMsg', !!view.msg);
+    show('updateActions', view.actions);
+    show('updateProgress', view.progress);
+    if (view.go) $('updateGo').textContent = view.go;
+    if (view.progress) {
+      const p = m.state === 'installing' ? 100 : Math.round(Math.max(0, Math.min(1, m.progress || 0)) * 100);
+      $('updateBar').style.width = p + '%';
+      $('updatePct').textContent = p + '%';
+    }
+  }
+  if (app) {
+    app.onmessage = e => {
+      let m;
+      try { m = JSON.parse(e.data); } catch { return; }
+      if (m.type === 'info') {
+        appVersion = m.version;
+        selfUpdates = m.updates === true;
+        $('version').disabled = !selfUpdates;
+        if (!selfUpdates) $('version').removeAttribute('title');
+        const seen = store.get('seenVersion');
+        store.set('seenVersion', appVersion);
+        if (selfUpdates && !updateReady && seen && seen !== appVersion) {
+          showVersion(`Updated to v${appVersion}`, 'available');
+          versionTimer = setTimeout(() => showVersion(`v${appVersion}`), 4000);
+        } else if (!updateReady) showVersion(`v${appVersion}`);
+      } else if (m.type === 'updateStatus' && selfUpdates) {
+        if (m.state === 'available') { updateReady = true; return showVersion('Update available', 'available'); }
+        showVersion(m.state === 'latest' ? 'Up to date' : "Couldn't check");
+        versionTimer = setTimeout(() => showVersion(`v${appVersion}`), 2500);
+      } else if (m.type === 'update' && selfUpdates) {
+        if (m.state === 'available') { updateReady = true; showVersion('Update available', 'available'); }
+        showUpdate(m);
+      }
+    };
+    $('updateGo').addEventListener('click', () => { showUpdate({ state: 'downloading', progress: 0 }); toApp({ type: 'installUpdate' }); });
+    $('updateLater').addEventListener('click', () => { $('updateCard').hidden = true; });
+    $('version').addEventListener('click', () => {
+      if (updateReady) { $('updateCard').hidden = false; return; }
+      showVersion('Checking…');
+      toApp({ type: 'checkUpdate' });
+    });
+  }
+
+  // ---- boot ----
+  $('getApp').hidden = !!app || inApp || !/Android/.test(navigator.userAgent);
+  render();
+  toApp({ type: 'hello' });
+})();
+</script>
+</body>
+</html>

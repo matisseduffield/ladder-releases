@@ -1,0 +1,923 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#E8ECE5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E1412" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="../manifest.json">
+<link rel="apple-touch-icon" sizes="180x180" href="../icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Dailies">
+<meta name="description" content="Slugle: a daily word ladder. Turn a new word into SLUG, one letter at a time.">
+<title>Slugle</title>
+<link rel="preload" href="../fonts/hanken-grotesk-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../shared.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect x=%223%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2212.2%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2221.4%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%223%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2212.2%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23F4C52E%22/><rect x=%2221.4%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%223%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%2212.2%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%2221.4%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/></svg>">
+<style>
+/* The ladder: plain solid tiles, a row for every word, growing down from the
+   top. Tiles stay one size: on a long climb, older words slide off the top
+   under a fade. */
+.stage-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
+.stage { flex: 1; min-width: 0; display: grid; grid-template-rows: minmax(0, 1fr); justify-items: center; align-items: start; padding: 50px 0 18px; overflow: hidden; }
+.ladder { --tile: 54px; --gap: 8px; --rung: 10px; display: grid; gap: var(--rung); }
+.stage .ladder { display: flex; flex-direction: column; max-height: 100%; }
+.rungs { position: relative; display: grid; gap: var(--rung); min-height: 0; margin: -4px -6px; padding: 4px 6px; overflow: hidden auto; overscroll-behavior: contain; scrollbar-width: none; }
+.rungs::-webkit-scrollbar { display: none; }
+.ladder.cut .rungs {
+  -webkit-mask-image: linear-gradient(transparent, #000 var(--tile));
+  mask-image: linear-gradient(transparent, #000 var(--tile));
+}
+.row { display: grid; grid-template-columns: repeat(4, var(--tile)); gap: var(--gap); }
+.tile {
+  display: grid; place-items: center;
+  width: var(--tile); height: var(--tile); padding: 0;
+  background: var(--surface); border-radius: 7px;
+  font-size: calc(var(--tile) * .44); font-weight: 600; line-height: 1; text-transform: uppercase;
+}
+.row.past { cursor: pointer; }
+.row.past .tile { color: var(--muted); }
+@media (hover: hover) { .row.past:hover .tile { background: var(--key); } }
+.row.past .tile.changed { color: var(--accent); }
+.row.past .tile.match, .row.current .tile.match { color: var(--pos); background: linear-gradient(var(--pos-soft), var(--pos-soft)), var(--surface); }
+.row.current .tile.hinted { color: var(--accent); background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--surface); }
+/* The next word, as it's typed */
+.row.entry .tile { background: var(--key); }
+.row.entry .tile:not(:empty) { background: var(--surface); }
+.row.goal .tile { background: var(--accent); color: var(--on-ink); transition: background .3s; }
+.ladder.done .row.goal .tile { background: var(--pos); }
+.row.bad .tile { color: var(--neg); }
+.row.new { animation: rise .22s ease-out; }
+/* Solved: each word hops in turn, top to bottom */
+.ladder.won .row { animation: hop .36s ease-out both; animation-delay: calc(var(--i) * 70ms); }
+@keyframes hop { 40% { transform: translateY(-4px); } }
+/* Swapping between your ladder and the best one: the rows ease in, top to bottom */
+.ladder.swap .row { animation: rise .26s ease-out both; animation-delay: calc(var(--i) * 45ms); }
+.row.bad { animation: shake .32s; }
+@keyframes rise { from { opacity: 0; transform: translateY(-8px); } }
+@keyframes shake { 20%, 60% { transform: translateX(-5px); } 40%, 80% { transform: translateX(5px); } }
+
+/* Over par: the way to see the best ladder */
+.reveal { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 0; background: none; border: 0; font-size: .9rem; font-weight: 600; color: var(--accent); }
+.reveal::after { content: ""; position: absolute; inset: -12px -8px; }
+
+/* Toolbar: undo and start over, the step count, and a hint */
+.tools { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; min-height: 48px; margin-bottom: 6px; }
+.tools-left { display: flex; gap: 2px; margin-left: -10px; }
+.tools-right { display: flex; justify-content: flex-end; margin-right: -10px; }
+.tool {
+  display: inline-flex; align-items: center; gap: 6px; height: 44px; padding: 0 10px;
+  background: none; border: 0; border-radius: 6px; font-size: .86rem; font-weight: 600; color: var(--muted);
+}
+@media (hover: hover) { .tool:hover:not(:disabled) { color: var(--ink); background: var(--key); } }
+.tool:disabled { opacity: .4; cursor: default; }
+.tool.hint { color: var(--accent); }
+/* Small phones or large text: Undo and Restart go down to their icons, then Hint,
+   so the row stays on screen. Measured in em, so a bigger font size counts too */
+.tools { container-type: inline-size; }
+@container (max-width: 21.25em) { .tools-left .tool { font-size: 0; gap: 0; } .count { white-space: normal; line-height: 1.25; } }
+@container (max-width: 16em) { .tools-right .tool { font-size: 0; gap: 0; } }
+@media (hover: hover) { .tool.hint:hover:not(:disabled) { color: var(--accent); background: var(--accent-soft); } }
+.count { font-size: .86rem; color: var(--muted); text-align: center; white-space: nowrap; }
+.count b { font-weight: 600; color: var(--ink); }
+.count.over b { color: var(--neg); }
+
+.rule { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; }
+.rule .n { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--key); font-size: .8rem; font-weight: 600; }
+.rules { display: grid; gap: 14px; }
+.example { display: grid; justify-items: center; padding: 18px 0 16px; background: var(--bg); border-radius: 10px; }
+.example .ladder { --tile: 30px; --gap: 5px; --rung: 6px; }
+.example .tile { border-radius: 5px; }
+.example-cap { margin-top: 10px; font-size: .8rem; color: var(--muted); text-align: center; }
+
+/* Past ladders, newest first, by month */
+.days { display: grid; margin-top: -6px; }
+.month { padding: 16px 0 4px; font-size: .78rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.month:first-child { padding-top: 0; }
+.day { display: grid; grid-template-columns: 58px 1fr auto; align-items: center; gap: 10px; min-height: 52px; padding: 0 8px; margin: 0 -8px; background: none; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; text-align: left; }
+@media (hover: hover) { .day:hover { background: var(--bg); } }
+.day-no { font-weight: 600; }
+.day-date { font-size: .9rem; color: var(--muted); }
+.day-state { font-size: .86rem; color: var(--faint); }
+.day-state.solved { font-weight: 600; color: var(--pos); }
+.day-state.started { font-weight: 600; color: var(--accent); }
+.day[aria-current="true"] .day-no::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 7px; border-radius: 50%; background: var(--ink); vertical-align: 2px; }
+
+/* Practice lengths: each with a little ladder as tall as it is long */
+.lengths { display: grid; gap: 10px; }
+.length { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; min-height: 64px; padding: 10px 16px; background: var(--bg); border: 2px solid transparent; border-radius: 10px; text-align: left; }
+@media (hover: hover) { .length:hover { border-color: var(--line-strong); } }
+.length[aria-checked="true"] { border-color: var(--ink); }
+.length b { display: block; font-weight: 600; line-height: 1.3; }
+.length span { display: block; font-size: .86rem; color: var(--muted); }
+.length svg { color: var(--line-strong); }
+.length[aria-checked="true"] svg { color: var(--accent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .row.new, .row.bad, .ladder.won .row, .ladder.swap .row { animation: none; }
+  .row.goal .tile { transition: none; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="top">
+      <a class="brand" href="../index.html" aria-label="All games">
+        <svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 2 8l6 6"/></svg>
+        <svg width="34" height="34" viewBox="0 0 64 64" fill="none" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#1F6F54"/><g transform="translate(13.5 3.5) scale(.57)"><path d="M43 29 38 13M52 28l4-16" stroke="#F4C52E" stroke-width="4.5" stroke-linecap="round"/><path fill="#F4C52E" d="M3 53C3 48 12 47 19 45 27 43 30 35 36 30 42 25 54 25 58 33 61 39 60 48 55 52 53 54 50 55 46 55H7C4 55 3 54 3 53Z"/><g fill="#D99F14"><circle cx="24" cy="49.5" r="2.4"/><circle cx="33.5" cy="44" r="3"/><circle cx="14" cy="51" r="1.7"/><circle cx="37" cy="51" r="1.6"/></g><path d="M43 39.5Q50 48 57.5 38" fill="none" stroke="#14211C" stroke-width="2.6" stroke-linecap="round"/><path fill="#EE6A7C" stroke="#14211C" stroke-width="1.6" stroke-linejoin="round" d="M47.5 43.6c.3 4.6 1.8 7 4 6.8 2.1-.2 3-3 2.4-7.4"/><g stroke="#14211C" stroke-width="1.8"><circle cx="38" cy="11" r="7.4" fill="#fff"/><circle cx="56.5" cy="10" r="7.4" fill="#fff"/></g><circle cx="40.4" cy="13.2" r="3.1" fill="#14211C"/><circle cx="54.4" cy="7.8" r="3.1" fill="#14211C"/></g><rect x="7" y="41" width="11.6" height="11.6" rx="2.4" fill="#FFFFFF"/><text x="12.8" y="50.6" font-size="10" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">S</text><rect x="19.7" y="41" width="11.6" height="11.6" rx="2.4" fill="#FFFFFF"/><text x="25.5" y="50.6" font-size="10" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">L</text><rect x="32.4" y="41" width="11.6" height="11.6" rx="2.4" fill="#FFFFFF"/><text x="38.2" y="50.6" font-size="10" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">U</text><rect x="45.099999999999994" y="41" width="11.6" height="11.6" rx="2.4" fill="#FFFFFF"/><text x="50.89999999999999" y="50.6" font-size="10" font-weight="600" font-family="Hanken Grotesk,Segoe UI,sans-serif" text-anchor="middle" fill="#14211C">G</text></svg>
+        <h1 class="mark">Slugle</h1>
+      </a>
+      <div class="top-right">
+        <button class="icon-btn" id="statsBtn" type="button" aria-label="Stats">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 16.5V11M10 16.5V4M16 16.5V8"/></svg>
+        </button>
+        <button class="icon-btn" id="helpBtn" type="button" aria-label="How to play">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="8"/><path d="M7.7 7.6a2.4 2.4 0 1 1 3.3 2.2c-.6.3-1 .8-1 1.5v.5"/><circle cx="10" cy="14.6" r=".4" fill="currentColor"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="modes">
+      <div class="tabs" role="tablist" aria-label="Mode">
+        <button class="tab" id="tabToday" role="tab" type="button">Today<span class="dot" id="todayDot" hidden></span></button>
+        <button class="tab" id="tabPractice" role="tab" type="button">Practice</button>
+      </div>
+      <p class="meta" id="meta"></p>
+    </div>
+  </header>
+
+  <main class="stage-wrap">
+    <p class="toast" id="toast" role="status"></p>
+    <div class="stage" id="stage">
+      <div class="ladder" id="ladder" aria-label="The ladder">
+        <div class="rungs" id="rungs"></div>
+        <div class="row goal" id="goal"></div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div id="play">
+      <div class="tools">
+        <div class="tools-left">
+          <button class="tool" id="undoBtn" type="button" aria-label="Undo a step">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 4 3 7.5 6.5 11"/><path d="M3.5 7.5h7a4.5 4.5 0 0 1 0 9H8"/></svg>Undo
+          </button>
+          <button class="tool" id="restartBtn" type="button" aria-label="Start over">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.2 9a5.8 5.8 0 1 0 1.9-4.3"/><path d="M4.6 1.8v3.4H8"/></svg>Restart
+          </button>
+        </div>
+        <p class="count" id="count"></p>
+        <div class="tools-right">
+          <button class="tool hint" id="hintBtn" type="button">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.6 13.2h4.8M7.3 16h3.4M9 1.8a5 5 0 0 0-2.9 9.1c.4.3.6.8.6 1.3v1h4.6v-1c0-.5.2-1 .6-1.3A5 5 0 0 0 9 1.8z"/></svg>Hint
+          </button>
+        </div>
+      </div>
+      <div class="keys" id="keys" aria-label="Letters"></div>
+    </div>
+    <section class="result" id="result" aria-live="polite" hidden>
+      <div class="result-head">
+        <p class="result-title" id="resTitle"></p>
+        <p class="result-tag" id="resTag"></p>
+      </div>
+      <p class="result-note" id="resNote"></p>
+      <div class="actions">
+        <button class="btn btn-secondary" id="resSecond" type="button"></button>
+        <button class="btn btn-primary" id="resFirst" type="button"></button>
+      </div>
+      <a class="next" id="resNext" hidden></a>
+      <p class="result-foot" id="resFoot"></p>
+    </section>
+  </footer>
+</div>
+
+<dialog class="sheet" id="helpSheet" aria-labelledby="helpTitle">
+  <div class="sheet-head">
+    <h2 id="helpTitle">How to play</h2>
+    <button class="icon-btn" type="button" data-close aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m4 4 10 10M14 4 4 14"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <p>Every day there’s a new word to start from, and every ladder ends on <b>SLUG</b>. Change one letter at a time, and make every step a real word.</p>
+    <div class="example">
+      <div class="ladder" id="example" aria-label="Example: FROG, FLOG, SLOG, SLUG"></div>
+      <p class="example-cap">FROG to SLUG in three steps</p>
+    </div>
+    <div class="rules">
+      <div class="rule"><span class="n">1</span><p>Type the next word and press <b>Enter</b>. It has to be the word above with one letter changed.</p></div>
+      <div class="rule"><span class="n">2</span><p><b>Par</b> is the fewest steps it can be done in. Gentle on Monday, longest on Sunday.</p></div>
+      <div class="rule"><span class="n">3</span><p>Green letters are already where they are in SLUG. Stuck? <b>Hint</b> marks the letter to change; tap it again for the word.</p></div>
+      <div class="rule"><span class="n">4</span><p>Tap an earlier word to go back to it. A new ladder arrives every midnight; missed one? Tap the date.</p></div>
+      <div class="rule"><span class="n">5</span><p>Want more? <b>Practice</b> deals as many as you like, short, medium or long.</p></div>
+    </div>
+    <button class="mode-row" id="hardBtn" type="button" role="switch" aria-checked="false">
+      <span><b>Hard mode</b><small>Hides par until you’ve solved it.</small></span>
+      <span class="switch" aria-hidden="true"></span>
+    </button>
+    <button class="btn btn-primary" type="button" data-close>Play</button>
+  </div>
+</dialog>
+
+<dialog class="sheet" id="statsSheet" aria-labelledby="statsTitle">
+  <div class="sheet-head">
+    <h2 id="statsTitle">Stats</h2>
+    <button class="icon-btn" type="button" data-close aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m4 4 10 10M14 4 4 14"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body" id="statsBody"></div>
+</dialog>
+
+<dialog class="sheet" id="pastSheet" aria-labelledby="pastTitle">
+  <div class="sheet-head">
+    <h2 id="pastTitle">Past ladders</h2>
+    <button class="icon-btn" type="button" data-close aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m4 4 10 10M14 4 4 14"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <p class="muted">Play any you missed. They count in your stats but not your streak.</p>
+    <div class="days" id="pastList"></div>
+  </div>
+</dialog>
+
+<dialog class="sheet" id="lengthSheet" aria-labelledby="lengthTitle">
+  <div class="sheet-head">
+    <h2 id="lengthTitle">New ladder</h2>
+    <button class="icon-btn" type="button" data-close aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m4 4 10 10M14 4 4 14"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <div class="lengths" id="lengths" role="radiogroup" aria-label="Length"></div>
+  </div>
+</dialog>
+
+<!-- Bump ?v= when these change, so browsers never pair this page with an old copy. -->
+<script src="words.js?v=4"></script>
+<script src="lib.js?v=10"></script>
+<script src="../clock.js?v=2"></script>
+<script src="../pwa.js"></script>
+<script src="../next.js?v=8"></script>
+<script>
+(() => {
+  const L = window.LadderLib, D = window.LadderWords;
+  const dict = L.dictionary(D);
+  const $ = id => document.getElementById(id);
+  const locale = navigator.language || 'en';
+  // Where the game lives on the web; shared results link here.
+  const SITE = `${location.hostname === 'appassets.androidplatform.net' ? 'https://dailies.matisseduffield.workers.dev' : location.origin}/slugle/index.html`;
+
+  const store = {
+    get(k) { try { return JSON.parse(localStorage.getItem('ladder.' + k)); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem('ladder.' + k, JSON.stringify(v)); } catch {} },
+  };
+
+  // ---- state ----
+  // days: { [day]: { ladder: [...words], hints, done, late } } (late: solved
+  // after its day); practice: the current random ladder, if any; length:
+  // how long practice ladders are; hard: par stays hidden until solved;
+  // mode: which one is on screen.
+  const saved = store.get('state') || {};
+  // A practice ladder from before they all ended on the goal is dropped.
+  if (saved.practice && saved.practice.puzzle.target !== D.goal) saved.practice = null;
+  const state = {
+    days: saved.days && typeof saved.days === 'object' ? saved.days : {},
+    practice: saved.practice || null,
+    length: L.LENGTHS[saved.length] ? saved.length : 'medium',
+    hard: !!saved.hard,
+    mode: saved.mode === 'practice' && saved.practice ? 'practice' : 'daily',
+  };
+  const save = () => store.set('state', state);
+
+  let today = L.dayNumber(Clock.now(), D.epoch);
+  let view = today;            // the daily ladder on screen: today or a past one
+  let puzzle, play;            // the puzzle on screen and its progress
+  let typed = '';              // the next word, as far as it's typed
+  let hint = null;             // { word, at, shown: 'spot' | 'word' } for the current rung
+  let fresh = false;           // animate the newest rung once
+  let best = false;            // showing the best ladder in place of a solved one
+  let swapped = false;         // ease the rows in once, after that changes
+  let bad = null;              // a rejected try, shown briefly
+  let badTimer = 0;
+
+  function load() {
+    if (state.mode === 'practice') {
+      puzzle = state.practice.puzzle;
+      play = state.practice;
+    } else {
+      puzzle = L.daily(view, D, dict);
+      play = state.days[view] || (state.days[view] = { ladder: [puzzle.start], hints: 0, done: false });
+      if (play.ladder[0] !== puzzle.start) Object.assign(play, { ladder: [puzzle.start], hints: 0, done: false });
+    }
+    typed = ''; hint = null; bad = null; best = false;
+  }
+  const current = () => play.ladder[play.ladder.length - 1];
+  const steps = () => play.ladder.length - 1;
+
+  // ---- toast ----
+  let toastTimer = 0;
+  // tone: '' plain, 'warn' for a refused word, 'tip' for hints.
+  function say(text, tone = '', ms = 2200) {
+    clearTimeout(toastTimer);
+    const t = $('toast');
+    t.textContent = text;
+    t.classList.toggle('warn', tone === 'warn');
+    t.classList.toggle('tip', tone === 'tip');
+    t.classList.toggle('show', !!text);
+    if (text && ms) toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+  }
+
+  // ---- drawing ----
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+  // opts: match (green where it's already the target's letter), hinted.
+  function tiles(row, word, opts = {}) {
+    for (let i = 0; i < L.LEN; i++) {
+      const t = el('span', 'tile', word ? word[i] || '' : '');
+      if (opts.match && word[i] === puzzle.target[i]) t.classList.add('match');
+      if (opts.hinted && hint && hint.at === i) t.classList.add('hinted');
+      row.append(t);
+    }
+    return row;
+  }
+
+  // The row being typed. A keypress redraws only this, not the whole ladder.
+  function drawEntry(row) {
+    row.className = bad ? 'row entry bad' : 'row entry';
+    row.replaceChildren();
+    tiles(row, typed);
+    row.setAttribute('aria-label', typed ? `Next word: ${typed.toUpperCase()}` : 'Type the next word');
+    return row;
+  }
+  function renderEntry() {
+    const row = $('rungs').querySelector('.entry');
+    if (!row) return;
+    drawEntry(row);
+    follow();
+  }
+
+  function renderLadder() {
+    const box = $('ladder'), rungs = $('rungs'), top = rungs.scrollTop;
+    const rows = [];
+    const words = best ? L.way(puzzle.start, puzzle.target, dict) : play.ladder;
+    words.forEach((w, i) => {
+      const last = i === words.length - 1;
+      if (last && play.done) return;
+      const row = el('div', 'row');
+      if (!last) {
+        row.classList.add('past');
+        if (!play.done) {
+          row.dataset.back = i;
+          row.setAttribute('role', 'button');
+          row.setAttribute('aria-label', `Go back to ${w.toUpperCase()}`);
+          row.tabIndex = 0;
+        } else row.style.cursor = 'default';
+        tiles(row, w, { match: true });
+      } else {
+        row.classList.add('current');
+        tiles(row, w, { match: true, hinted: true });
+      }
+      if (last && fresh && i > 0) row.classList.add('new');
+      row.style.setProperty('--i', i);
+      rows.push(row);
+    });
+    // The next word as it's typed. Everyone knows a ladder ends on the goal, so
+    // that only appears once it's solved.
+    if (!play.done) rows.push(drawEntry(el('div')));
+    const goal = $('goal');
+    goal.hidden = !play.done;
+    goal.replaceChildren();
+    tiles(goal, puzzle.target);
+    goal.setAttribute('aria-label', `Get to ${puzzle.target.toUpperCase()}`);
+    goal.style.setProperty('--i', rows.length);
+    rungs.replaceChildren(...rows);
+    rungs.scrollTop = top;
+    box.classList.toggle('done', play.done);
+    box.classList.toggle('won', play.done && fresh);
+    box.classList.toggle('swap', swapped);
+    swapped = false;
+    renderTools();
+    fit();
+    fresh = false;
+  }
+
+  function renderTools() {
+    const n = steps(), over = !state.hard && n > puzzle.par;
+    const c = $('count');
+    c.classList.toggle('over', over);
+    c.replaceChildren(el('b', '', `Step ${n}`));
+    if (!state.hard) c.append(` · Par ${puzzle.par}`);
+    $('undoBtn').disabled = n === 0;
+    $('restartBtn').disabled = n === 0;
+  }
+
+  // One tile size for every ladder: room for seven rows. A longer climb
+  // scrolls rather than shrinks.
+  let stageHeight = 0;
+  function fit() {
+    const box = $('ladder'), stage = $('stage');
+    // The result panel isn't the keyboard's height; solving doesn't resize.
+    if (!play.done || !stageHeight) stageHeight = stage.clientHeight;
+    const n = 7;
+    const h = stageHeight - 68, w = Math.min(stage.clientWidth, 340);
+    const byH = h / (n + (n - 1) * 0.2);
+    const byW = (w - 3 * 8) / 4;
+    const tile = Math.max(40, Math.min(60, Math.floor(Math.min(byH, byW))));
+    box.style.setProperty('--tile', tile + 'px');
+    box.style.setProperty('--rung', Math.round(tile * 0.2) + 'px');
+    box.style.setProperty('--gap', Math.round(Math.min(8, tile * 0.16)) + 'px');
+    follow();
+  }
+
+  // Keep the end of the climb in view: the row being typed, or the last word.
+  const still = matchMedia('(prefers-reduced-motion: reduce)');
+  function follow() {
+    const rungs = $('rungs'), entry = rungs.querySelector('.entry');
+    const end = entry ? entry.offsetTop + entry.offsetHeight + 4 : rungs.scrollHeight;
+    rungs.scrollTo({ top: Math.max(0, end - rungs.clientHeight), behavior: fresh && !still.matches ? 'smooth' : 'auto' });
+  }
+  $('rungs').addEventListener('scroll', e => $('ladder').classList.toggle('cut', e.target.scrollTop > 2), { passive: true });
+
+  const dateOf = day => { const [y, m, d] = D.epoch.split('-').map(Number); return new Date(y, m - 1, d + day - 1); };
+  // Made once: building a formatter costs far more than using one, and the
+  // past ladders list formats every day there's been.
+  const dayFormat = new Intl.DateTimeFormat(locale, { weekday: 'short', day: 'numeric', month: 'short' });
+  const monthFormat = new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' });
+  const shortDate = day => dayFormat.format(dateOf(day));
+  const svg = (w, h, d, width = 1.6) => {
+    const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    s.setAttribute('width', w); s.setAttribute('height', h); s.setAttribute('viewBox', `0 0 ${w} ${h}`); s.setAttribute('aria-hidden', 'true');
+    s.innerHTML = `<path d="${d}" fill="none" stroke="currentColor" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round"/>`;
+    return s;
+  };
+
+  function renderHeader() {
+    const daily = state.mode === 'daily', onToday = daily && view === today;
+    $('tabToday').setAttribute('aria-selected', String(onToday));
+    $('tabPractice').setAttribute('aria-selected', String(!daily));
+    // A dot on Today while today's ladder is still to do.
+    $('todayDot').hidden = onToday || todayDone();
+    const meta = $('meta');
+    const label = daily ? `No. ${view} · ${shortDate(view)}` : 'New ladder';
+    // Day 1 has nothing before it, so the date only opens past ladders after that.
+    if (daily && today < 2) return meta.replaceChildren(label);
+    const b = el('button', 'meta-btn', label);
+    b.type = 'button';
+    b.setAttribute('aria-haspopup', 'dialog');
+    if (daily) b.setAttribute('aria-label', `${label}. Past ladders`);
+    b.append(svg(10, 10, 'm2 3.5 3 3 3-3'));
+    b.addEventListener('click', () => openSheet(daily ? 'pastSheet' : 'lengthSheet'));
+    meta.replaceChildren(b);
+  }
+
+  const todayDone = () => !!(state.days[today] && state.days[today].done);
+  const solvedDays = () => Object.keys(state.days).filter(d => state.days[d].done).map(Number);
+  // Only ladders solved on their own day keep a streak going.
+  const streakDays = () => solvedDays().filter(d => !state.days[d].late);
+
+  function renderResult() {
+    const n = steps(), par = puzzle.par, diff = n - par;
+    $('resTitle').textContent = best ? `The ${par}-step way` : `Solved in ${n}`;
+    const tag = $('resTag');
+    tag.textContent = best ? `Par ${par}` : diff === 0 ? 'On par' : `${Math.abs(diff)} ${diff < 0 ? 'under' : 'over'} par`;
+    tag.classList.toggle('good', best || diff <= 0);
+    const note = $('resNote'), hints = play.hints ? `${play.hints} ${play.hints === 1 ? 'hint' : 'hints'} used` : '';
+    if (diff <= 0) note.textContent = hints;
+    else {
+      const b = el('button', 'reveal', best ? 'Back to your ladder' : 'Show the best way');
+      b.type = 'button';
+      b.prepend(best ? svg(14, 14, 'M5 3 2 6l3 3M2.5 6H9a3 3 0 0 1 0 6H6') : svg(14, 14, 'M1 7s2.2-4 6-4 6 4 6 4-2.2 4-6 4-6-4-6-4zM7 8.6a1.6 1.6 0 1 0 0-3.2 1.6 1.6 0 0 0 0 3.2z'));
+      b.addEventListener('click', () => { best = !best; swapped = true; renderLadder(); renderResult(); });
+      note.replaceChildren(...(hints ? [`${hints} · `] : []), b);
+    }
+    const daily = state.mode === 'daily';
+    $('resFirst').textContent = daily ? 'Share' : 'New ladder';
+    $('resSecond').textContent = !daily ? 'Share' : view !== today && !todayDone() ? 'Today’s ladder' : 'Practice';
+    showNext($('resNext'), 'slugle', state.mode === 'daily' && view === today);
+    tickNext();
+  }
+
+  function tickNext() {
+    const foot = $('resFoot');
+    if (!play.done) return;
+    if (view !== today && state.mode === 'daily') return foot.replaceChildren(el('span', '', play.late ? 'Solved late, so it doesn’t change your streak' : 'Solved on the day'));
+    if (!todayDone()) return foot.replaceChildren(el('span', '', 'Today’s ladder is still to do'));
+    const now = Clock.now();
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const mins = Math.max(1, Math.ceil((midnight - now) / 60000));
+    const s = L.streak(streakDays(), today);
+    const left = el('span');
+    left.append(el('b', '', String(s)), ` day streak`);
+    foot.replaceChildren(left, el('span', '', `Next ladder in ${mins >= 60 ? `${Math.floor(mins / 60)} h ` : ''}${mins % 60} min`));
+  }
+
+  function render() {
+    renderHeader();
+    renderLadder();
+    $('play').hidden = play.done;
+    $('result').hidden = !play.done;
+    if (play.done) { renderResult(); follow(); }
+    tellBack();
+  }
+
+  // ---- stats ----
+  function renderStats() {
+    const days = solvedDays();
+    const body = $('statsBody');
+    if (!days.length) {
+      body.replaceChildren(el('p', 'empty', 'Finish a daily ladder to start your stats.'));
+      return;
+    }
+    const diffs = days.map(d => state.days[d].ladder.length - 1 - L.parForDay(d, D.epoch));
+    const atPar = diffs.filter(x => x <= 0).length;
+    const nums = el('div', 'numbers');
+    for (const [v, label] of [
+      [days.length, 'Solved'],
+      [L.streak(streakDays(), today), 'Streak'],
+      [L.bestStreak(streakDays()), 'Best streak'],
+      [Math.round(atPar / days.length * 100) + '%', 'Par or under'],
+    ]) {
+      const n = el('p', 'num');
+      n.append(el('b', '', String(v)), el('span', '', label));
+      nums.append(n);
+    }
+    const buckets = [['Under par', x => x < 0], ['On par', x => x === 0], ['1 over', x => x === 1], ['2 over', x => x === 2], ['3+ over', x => x >= 3]];
+    const counts = buckets.map(([, f]) => diffs.filter(f).length);
+    const max = Math.max(...counts, 1);
+    const todayRec = state.days[today];
+    const todayDiff = todayRec && todayRec.done ? todayRec.ladder.length - 1 - L.parForDay(today, D.epoch) : null;
+    const dist = el('div', 'dist');
+    dist.append(el('p', 'dist-title', 'Against par'));
+    buckets.forEach(([label, f], i) => {
+      const row = el('div', 'bar-row');
+      const bar = el('div', 'bar', String(counts[i]));
+      bar.style.width = `${Math.max(8, counts[i] / max * 100)}%`;
+      if (todayDiff !== null && f(todayDiff)) bar.classList.add('today');
+      row.append(el('span', '', label), el('div', '', ''));
+      row.lastChild.append(bar);
+      dist.append(row);
+    });
+    body.replaceChildren(nums, dist);
+    if (todayRec && todayRec.done) {
+      const b = el('button', 'btn btn-primary', 'Share today’s ladder');
+      b.type = 'button';
+      b.addEventListener('click', () => share(L.daily(today, D, dict), todayRec));
+      body.append(b);
+    }
+  }
+
+  // ---- past ladders ----
+  function renderPast() {
+    const list = [];
+    let month = '';
+    for (let day = today; day >= 1; day--) {
+      const m = monthFormat.format(dateOf(day));
+      if (m !== month) { month = m; list.push(el('p', 'month', m)); }
+      const rec = state.days[day], par = L.parForDay(day, D.epoch);
+      const b = el('button', 'day');
+      b.type = 'button';
+      b.dataset.day = day;
+      if (state.mode === 'daily' && day === view) b.setAttribute('aria-current', 'true');
+      let st;
+      if (rec && rec.done) st = el('span', 'day-state solved', `${rec.ladder.length - 1} steps, par ${par}`);
+      else if (rec && rec.ladder.length > 1) st = el('span', 'day-state started', 'Started');
+      else st = el('span', 'day-state', state.hard ? '' : `Par ${par}`);
+      b.append(el('span', 'day-no', `No. ${day}`), el('span', 'day-date', day === today ? 'Today' : shortDate(day)), st);
+      list.push(b);
+    }
+    $('pastList').replaceChildren(...list);
+  }
+  $('pastList').addEventListener('click', e => {
+    const b = e.target.closest('.day');
+    if (!b) return;
+    $('pastSheet').close();
+    showDay(Number(b.dataset.day));
+  });
+  function showDay(day) {
+    state.mode = 'daily';
+    view = day;
+    save(); load(); say(''); render();
+  }
+
+  // ---- hard mode ----
+  const showHard = () => $('hardBtn').setAttribute('aria-checked', String(state.hard));
+  $('hardBtn').addEventListener('click', () => {
+    state.hard = !state.hard;
+    showHard();
+    save(); render();
+  });
+
+  // ---- practice lengths ----
+  const LENGTH_TEXT = { short: 'Short', medium: 'Medium', long: 'Long' };
+  function renderLengths() {
+    $('lengths').replaceChildren(...Object.entries(L.LENGTHS).map(([key, [lo, hi]]) => {
+      const b = el('button', 'length');
+      b.type = 'button';
+      b.dataset.length = key;
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', String(key === state.length));
+      const text = el('div');
+      text.append(el('b', '', LENGTH_TEXT[key]), el('span', '', `${lo} or ${hi} steps`));
+      // A little ladder with as many rungs as the shortest it can be.
+      const h = lo * 6 + 4;
+      let d = `M3 1v${h - 2}M15 1v${h - 2}`;
+      for (let i = 0; i < lo; i++) d += `M3 ${5 + i * 6}h12`;
+      b.append(text, svg(18, h, d, 2));
+      return b;
+    }));
+  }
+  $('lengths').addEventListener('click', e => {
+    const b = e.target.closest('.length');
+    if (!b) return;
+    state.length = b.dataset.length;
+    $('lengthSheet').close();
+    startPractice();
+  });
+
+  // ---- sheets ----
+  function openSheet(id) {
+    if (id === 'statsSheet') renderStats();
+    if (id === 'pastSheet') renderPast();
+    if (id === 'lengthSheet') renderLengths();
+    const d = $(id);
+    if (!d.open) d.showModal();
+    tellBack();
+  }
+  for (const d of document.querySelectorAll('dialog.sheet')) {
+    d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-close]')) d.close(); });
+    d.addEventListener('close', tellBack);
+  }
+  const openDialog = () => document.querySelector('dialog.sheet[open]');
+
+  // The example ladder in How to play.
+  (() => {
+    const words = ['frog', 'flog', 'slog', 'slug'];
+    $('example').replaceChildren(...words.map((w, i) => {
+      const row = el('div', i === words.length - 1 ? 'row goal' : 'row past');
+      row.style.cursor = 'default';
+      for (let j = 0; j < 4; j++) {
+        const t = el('span', 'tile', w[j]);
+        if (i && i < words.length - 1 && L.changedAt(words[i - 1], w) === j) t.classList.add('changed');
+        row.append(t);
+      }
+      return row;
+    }));
+  })();
+
+  // ---- playing ----
+  function press(letter) {
+    settle();
+    if (typed.length < L.LEN) typed += letter;
+    renderEntry();
+  }
+
+  function erase() {
+    settle();
+    typed = typed.slice(0, -1);
+    renderEntry();
+  }
+
+  function enter() {
+    if (play.done || bad) return;
+    const word = current(), next = typed;
+    if (next.length < L.LEN) return say('Type all four letters', 'warn');
+    if (next === word) return reject(`That’s ${word.toUpperCase()} again. Change one letter.`);
+    if (!dict.all.has(next) && next !== puzzle.target) return reject(`${next.toUpperCase()} isn’t a valid word`, 'wipe');
+    if (!L.oneApart(word, next)) return reject(`Change just one letter of ${word.toUpperCase()}`);
+    if (play.ladder.includes(next)) return reject(`${next.toUpperCase()} is already on the ladder`);
+    play.ladder.push(next);
+    typed = ''; hint = null; fresh = true;
+    say('');
+    if (next === puzzle.target) finish();
+    save();
+    render();
+  }
+
+  // A refused try shakes. A word that's one letter out stays to be fixed;
+  // something that isn't a word at all ('wipe') clears for a fresh go.
+  function reject(text, how = true) {
+    haptic('tick');
+    bad = how;
+    say(text, 'warn');
+    renderEntry();
+    clearTimeout(badTimer);
+    badTimer = setTimeout(() => { settle(); renderEntry(); }, 450);
+  }
+  function settle() {
+    clearTimeout(badTimer);
+    if (bad === 'wipe') typed = '';
+    bad = false;
+  }
+
+  function back(to = steps() - 1) {
+    if (play.done || to < 0 || to >= steps()) return;
+    play.ladder.length = to + 1;
+    typed = ''; hint = null;
+    say('');
+    save();
+    renderLadder();
+  }
+
+  // First the letter to change; asked again on the same rung, the word.
+  function giveHint() {
+    if (play.done) return;
+    const word = current();
+    if (hint && hint.shown === 'word') { typed = hint.word; renderLadder(); return say(`Try ${hint.word.toUpperCase()}. Press Enter.`, 'tip', 5000); }
+    const next = L.nextStep(word, puzzle.target, dict);
+    if (!next) return say('No way on from here. Undo a step.', 'warn');
+    if (play.ladder.includes(next)) return say(`Go back to ${next.toUpperCase()}: tap it, or Undo.`, 'tip', 5000);
+    play.hints++;
+    if (hint && hint.word === next) {
+      hint.shown = 'word';
+      typed = next;
+      say(`Try ${next.toUpperCase()}. Press Enter.`, 'tip', 5000);
+    } else {
+      hint = { word: next, at: L.changedAt(word, next), shown: 'spot' };
+      say('Change the marked letter. Hint again for the word.', 'tip', 5000);
+    }
+    save();
+    renderLadder();
+  }
+
+  function finish() {
+    play.done = true;
+    if (state.mode === 'daily' && view !== today) play.late = true;
+    haptic('tick');
+    report();
+  }
+
+  // Today's result, for the hub's home screen.
+  function report() {
+    // Finished in the moments after midnight: that day's over, so the hub's new day stays open.
+    if (L.dayNumber(Clock.now(), D.epoch) !== today) return;
+    const rec = state.days[today];
+    if (!rec || !rec.done) return;
+    const text = `Solved in ${rec.ladder.length - 1}, par ${L.parForDay(today, D.epoch)}`;
+    try { localStorage.setItem('hub.slugle', JSON.stringify({ date: Clock.now().toDateString(), text })); } catch {}
+  }
+
+  function share(p = puzzle, pl = play) {
+    const text = `${L.shareText(p, pl.ladder, pl.hints)}\n${SITE}`;
+    if (app) return toApp({ type: 'share', title: 'Slugle', text });
+    if (navigator.share) return navigator.share({ text }).catch(() => {});
+    navigator.clipboard.writeText(text).then(() => say('Copied to share'), () => {});
+  }
+
+  function startPractice() {
+    const p = L.practice((Math.random() * 2 ** 32) >>> 0, D, dict, state.length);
+    state.practice = { puzzle: p, ladder: [p.start], hints: 0, done: false };
+    state.mode = 'practice';
+    save(); load(); say(''); render();
+  }
+  function setMode(mode) {
+    if (state.mode === mode && (mode === 'practice' || view === today)) return;
+    if (mode === 'practice' && !state.practice) return startPractice();
+    state.mode = mode;
+    view = today;
+    save(); load(); say(''); render();
+  }
+
+  // ---- keyboard ----
+  const ROWS = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
+  $('keys').replaceChildren(...ROWS.map((r, i) => {
+    const row = el('div', 'krow');
+    if (i === 1) row.append(el('span', 'spacer'));
+    for (const ch of r) {
+      const k = el('button', 'key', ch);
+      k.type = 'button';
+      k.dataset.key = ch;
+      row.append(k);
+    }
+    if (i === 1) row.append(el('span', 'spacer'));
+    // Enter and delete either side of the bottom row, as on a phone.
+    if (i === 2) {
+      const go = el('button', 'key wide', 'Enter');
+      go.type = 'button'; go.dataset.key = 'enter';
+      const del = el('button', 'key wide');
+      del.type = 'button'; del.dataset.key = 'erase'; del.setAttribute('aria-label', 'Delete');
+      del.append(svg(22, 18, 'M7.5 3.5h11a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-11L2.5 9zM11 6.5l5 5M16 6.5l-5 5'));
+      row.prepend(go);
+      row.append(del);
+    }
+    return row;
+  }));
+  function hit(k) {
+    haptic();
+    if (k.dataset.key === 'enter') enter();
+    else if (k.dataset.key === 'erase') erase();
+    else press(k.dataset.key);
+  }
+  // Keys act on touch-down: a click waits for the finger to lift, and two
+  // thumbs typing fast overlap, which loses letters. A click with no pointer
+  // behind it is Tab and Enter, or a screen reader.
+  let holding = 0;
+  const stopHolding = () => { clearTimeout(holding); clearInterval(holding); };
+  $('keys').addEventListener('pointerdown', e => {
+    const k = e.target.closest('.key');
+    if (!k) return;
+    hit(k);
+    // Holding delete keeps deleting, as on a phone's own keyboard.
+    stopHolding();
+    if (k.dataset.key === 'erase') holding = setTimeout(() => { holding = setInterval(erase, 90); }, 380);
+  });
+  for (const type of ['pointerup', 'pointercancel']) addEventListener(type, stopHolding);
+  $('keys').addEventListener('click', e => {
+    const k = e.target.closest('.key');
+    if (k && (e.detail === 0 || e.pointerType === '')) hit(k);
+  });
+  // Keys and tools never take focus, so a real keyboard's Enter always means
+  // "add this word" rather than pressing the last button tapped.
+  $('play').addEventListener('pointerdown', e => { if (e.target.closest('button')) e.preventDefault(); });
+
+  $('ladder').addEventListener('click', e => {
+    const r = e.target.closest('.row.past[data-back]');
+    if (r) back(Number(r.dataset.back));
+  });
+  $('ladder').addEventListener('keydown', e => {
+    const r = e.target.closest('.row.past[data-back]');
+    if (r && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); back(Number(r.dataset.back)); }
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented || play.done || openDialog()) return;
+    if (/^[a-z]$/i.test(e.key)) {
+      e.preventDefault();
+      // Off the last button clicked, so Enter goes to the game.
+      if (e.target instanceof HTMLElement) e.target.blur();
+      return press(e.key.toLowerCase());
+    }
+    if (e.key === 'Backspace') { e.preventDefault(); return erase(); }
+    // Enter on a button reached with Tab still presses that button.
+    if (e.key === 'Enter' && !(e.target instanceof Element && e.target.closest('button, [role="button"]'))) { e.preventDefault(); return enter(); }
+  });
+
+  $('undoBtn').addEventListener('click', () => back());
+  $('restartBtn').addEventListener('click', () => back(0));
+  $('hintBtn').addEventListener('click', giveHint);
+  $('resFirst').addEventListener('click', () => state.mode === 'daily' ? share() : startPractice());
+  $('resSecond').addEventListener('click', () => {
+    if (state.mode !== 'daily') return share();
+    if (view !== today && !todayDone()) return showDay(today);
+    setMode('practice');
+  });
+  $('tabToday').addEventListener('click', () => setMode('daily'));
+  $('tabPractice').addEventListener('click', () => setMode('practice'));
+  $('helpBtn').addEventListener('click', () => openSheet('helpSheet'));
+  $('statsBtn').addEventListener('click', () => openSheet('statsSheet'));
+
+  // Android Back: close a sheet, then leave practice or a past ladder.
+  const awayFromToday = () => state.mode === 'practice' || view !== today;
+  window.ladderBack = () => {
+    const d = openDialog();
+    if (d) { d.close(); return true; }
+    if (!awayFromToday()) return false;
+    setMode('daily');
+    return true;
+  };
+  function tellBack() { toApp({ type: 'back', enabled: !!openDialog() || awayFromToday() }); }
+
+  addEventListener('resize', () => { stageHeight = 0; fit(); });
+  // A new day while the game sits open (or comes back from the background).
+  function checkDay() {
+    const now = L.dayNumber(Clock.now(), D.epoch);
+    if (now !== today) {
+      // A daily in hand at midnight is finished first; it still counts for its day.
+      if (state.mode === 'daily' && view === today && play.ladder.length > 1 && !play.done && Clock.playing()) return;
+      // Whoever was on today's ladder moves on to the new one.
+      if (view === today) view = now;
+      today = now;
+      if (state.mode === 'daily') load();
+      render();
+    } else if (play.done) tickNext();
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkDay(); });
+  addEventListener('clock', checkDay);
+  setInterval(() => { if (!document.hidden) checkDay(); }, 30000);
+
+  // ---- Android app bridge (absent in a browser) ----
+  const app = window.ladderApp || null;
+  function toApp(msg) {
+    if (!app) return;
+    try { app.postMessage(JSON.stringify(msg)); } catch {}
+  }
+  function haptic(kind = 'tap') { toApp({ type: 'haptic', kind }); }
+
+  // ---- boot ----
+  // Back on a new day: open on today's ladder, not yesterday's practice.
+  if (store.get('lastDay') !== today) { store.set('lastDay', today); state.mode = 'daily'; }
+  showHard();
+  report();
+  load();
+  render();
+  // First visit: how to play, once.
+  if (!store.get('seenHelp')) { store.set('seenHelp', true); openSheet('helpSheet'); }
+})();
+</script>
+</body>
+</html>

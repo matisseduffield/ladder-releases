@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#E8ECE5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E1412" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="../manifest.json">
+<link rel="apple-touch-icon" sizes="180x180" href="../icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Dailies">
+<meta name="description" content="Sorted: sixteen words, four hidden groups, a new puzzle every day.">
+<title>Sorted</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect x=%223%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2212.2%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2221.4%22 y=%223%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%223%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%232C53C4%22/><rect x=%2212.2%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23F4C52E%22/><rect x=%2221.4%22 y=%2212.2%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%223%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%2212.2%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/><rect x=%2221.4%22 y=%2221.4%22 width=%227.6%22 height=%227.6%22 rx=%221.9%22 fill=%22%23A9B8E6%22/></svg>">
+<link rel="preload" href="../fonts/hanken-grotesk-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../shared.css">
+<style>
+/* A group's colour says how hard it was: yellow, green, blue, then purple.
+   The yellow is the slug's. Ink reads on all four, in either theme. */
+:root { --l0: #F4C52E; --l1: #5DBB85; --l2: #7F9FF0; --l3: #B58CE3; --on-set: #14211C; --pick: #55625B; --on-pick: #F7F8F4; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --pick: #AEB9B2; --on-pick: #0E1412; } }
+:root[data-theme="dark"] { --pick: #AEB9B2; --on-pick: #0E1412; }
+
+/* As tall as the Today and Practice tabs, so the rule sits where it does in every game */
+.modes { min-height: 44px; }
+.ask { padding-bottom: 11px; font-size: .84rem; color: var(--muted); }
+
+/* Messages sit on top of the board, where the eyes already are */
+.toast { left: 50%; right: auto; width: max-content; max-width: 100%; padding: 7px 16px; border-radius: 18px; background: var(--ink); color: var(--on-ink); font-size: .95rem; transform: translate(-50%, 6px); }
+.toast.show { transform: translate(-50%, 0); }
+.toast.warn { color: var(--on-ink); }
+
+/* The board: sorted groups stack at the top, the words left stay in a grid */
+.stage-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
+.stage { flex: 1; min-width: 0; display: grid; align-content: center; padding: 34px 0 12px; overflow: hidden auto; }
+.board { --cell: 72px; --w: 80px; --gap: 7px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: minmax(var(--cell), auto); gap: var(--gap); }
+.word {
+  display: grid; place-items: center; min-width: 0; padding: 0 3px;
+  background: var(--surface); border: 0; border-radius: 8px;
+  font-size: min(15px, calc((var(--w) - 8px) / (var(--len) * .7))); font-weight: 600; line-height: 1.15; text-align: center; text-transform: uppercase;
+  touch-action: manipulation; user-select: none; -webkit-user-select: none;
+  transition: background .12s, color .12s, transform .12s;
+}
+.word:active { transform: scale(.96); }
+.word[aria-pressed="true"] { background: var(--pick); color: var(--on-pick); }
+.word.bad { animation: shake .32s; }
+/* A right guess: the four hop in turn, then become their group */
+.word.hop { animation: hop .3s ease-out both; animation-delay: calc(var(--i) * 70ms); }
+@keyframes hop { 45% { transform: translateY(-9px); } }
+@keyframes shake { 20%, 60% { transform: translateX(-4px); } 40%, 80% { transform: translateX(4px); } }
+
+.set {
+  grid-column: 1 / -1; display: grid; place-content: center; gap: 2px; padding: 0 10px;
+  border-radius: 8px; color: var(--on-set); text-align: center; text-transform: uppercase;
+}
+.set b { font-size: 1rem; font-weight: 600; line-height: 1.2; letter-spacing: .02em; }
+.set span { font-size: .84rem; line-height: 1.25; }
+.set.l0 { background: var(--l0); }
+.set.l1 { background: var(--l1); }
+.set.l2 { background: var(--l2); }
+.set.l3 { background: var(--l3); }
+.set.new { animation: settle .34s cubic-bezier(.2, 1.3, .4, 1) both; animation-delay: calc(var(--i) * 160ms); }
+@keyframes settle { from { opacity: 0; transform: scale(.94); } }
+
+/* Mistakes left, then the three things to do */
+.tools { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 36px; margin-bottom: 6px; font-size: .86rem; color: var(--muted); }
+.dots { display: flex; gap: 6px; }
+.dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--ink); transition: background .2s; }
+.dots i.gone { background: var(--key-down); }
+.controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; padding-bottom: 4px; }
+.controls .btn-secondary { background: var(--key); border-color: transparent; }
+@media (hover: hover) { .controls .btn-secondary:hover { background: var(--key-down); } }
+.controls .btn:disabled { opacity: .45; cursor: default; }
+
+.scale { display: grid; gap: 6px; }
+.scale-bars { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+.scale-bars i { height: 22px; border-radius: 5px; }
+.scale-bars i:nth-child(1) { background: var(--l0); }
+.scale-bars i:nth-child(2) { background: var(--l1); }
+.scale-bars i:nth-child(3) { background: var(--l2); }
+.scale-bars i:nth-child(4) { background: var(--l3); }
+.scale-ends { display: flex; justify-content: space-between; font-size: .84rem; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .word, .dots i { transition: none; }
+  .word.bad, .word.hop, .set.new { animation: none; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="top">
+      <a class="brand" href="../index.html" aria-label="All games">
+        <svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2 2 8l6 6"/></svg>
+        <svg width="30" height="30" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#C2407A"/><rect x="9" y="9" width="9.5" height="9.5" rx="2.2" fill="#FFCF33"/><rect x="20.5" y="9" width="9.5" height="9.5" rx="2.2" fill="#FFCF33"/><rect x="9" y="20.5" width="9.5" height="9.5" rx="2.2" fill="#FFCF33"/><rect x="20.5" y="20.5" width="9.5" height="9.5" rx="2.2" fill="#FFCF33"/><rect x="34" y="9" width="9.5" height="9.5" rx="2.2" fill="#FFFFFF"/><rect x="45.5" y="9" width="9.5" height="9.5" rx="2.2" fill="#FFFFFF"/><rect x="34" y="20.5" width="9.5" height="9.5" rx="2.2" fill="#FFFFFF"/><rect x="45.5" y="20.5" width="9.5" height="9.5" rx="2.2" fill="#FFFFFF"/><rect x="9" y="34" width="9.5" height="9.5" rx="2.2" fill="#8FE3B4"/><rect x="20.5" y="34" width="9.5" height="9.5" rx="2.2" fill="#8FE3B4"/><rect x="9" y="45.5" width="9.5" height="9.5" rx="2.2" fill="#8FE3B4"/><rect x="20.5" y="45.5" width="9.5" height="9.5" rx="2.2" fill="#8FE3B4"/><rect x="34" y="34" width="9.5" height="9.5" rx="2.2" fill="#BFD2F8"/><rect x="45.5" y="34" width="9.5" height="9.5" rx="2.2" fill="#BFD2F8"/><rect x="34" y="45.5" width="9.5" height="9.5" rx="2.2" fill="#BFD2F8"/><rect x="45.5" y="45.5" width="9.5" height="9.5" rx="2.2" fill="#BFD2F8"/></svg>
+        <h1 class="mark">Sorted</h1>
+      </a>
+      <div class="top-right">
+        <button class="icon-btn" id="statsBtn" type="button" aria-label="Stats">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 16.5V11M10 16.5V4M16 16.5V8"/></svg>
+        </button>
+        <button class="icon-btn" id="helpBtn" type="button" aria-label="How to play">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="8"/><path d="M7.7 7.6a2.4 2.4 0 1 1 3.3 2.2c-.6.3-1 .8-1 1.5v.5"/><circle cx="10" cy="14.6" r=".4" fill="currentColor"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="modes">
+      <p class="ask">Find the four groups of four</p>
+      <p class="meta" id="meta"></p>
+    </div>
+  </header>
+
+  <main class="stage-wrap">
+    <p class="toast" id="toast" role="status"></p>
+    <div class="stage" id="stage">
+      <div class="board" id="board" aria-label="The words"></div>
+    </div>
+  </main>
+
+  <footer>
+    <div id="play">
+      <div class="tools"><span>Mistakes left</span><span class="dots" id="dots"></span></div>
+      <div class="controls">
+        <button class="btn btn-secondary" id="shuffleBtn" type="button">Shuffle</button>
+        <button class="btn btn-secondary" id="clearBtn" type="button">Clear</button>
+        <button class="btn btn-primary" id="checkBtn" type="button">Check</button>
+      </div>
+    </div>
+    <section class="result" id="result" aria-live="polite" hidden>
+      <div class="result-head">
+        <p class="result-title" id="resTitle"></p>
+        <p class="result-tag" id="resTag"></p>
+      </div>
+      <div class="actions">
+        <button class="btn btn-secondary" id="resStats" type="button">Stats</button>
+        <button class="btn btn-primary" id="resShare" type="button">Share</button>
+      </div>
+      <a class="next" id="resNext" hidden></a>
+      <p class="result-foot" id="resFoot"></p>
+    </section>
+  </footer>
+</div>
+
+<dialog class="sheet" id="helpSheet" aria-labelledby="helpTitle">
+  <div class="sheet-head">
+    <h2 id="helpTitle">How to play</h2>
+    <button class="icon-btn" type="button" data-close aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m4 4 10 10M14 4 4 14"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <p>Sixteen words hide four groups of four. Tap four that belong together and press <b>Check</b>.</p>
+    <p>A right group is set aside. A wrong one costs one of your four mistakes, and if three of your four belonged together you’ll see <b>One away</b>.</p>
+    <p>Plenty of words seem to fit two groups, but only one way works for all sixteen.</p>
+    <div class="scale" aria-hidden="true">
+      <div class="scale-bars"><i></i><i></i><i></i><i></i></div>
+      <div class="scale-ends"><span>Easiest group</span><span>Trickiest</span></div>
+    </div>
+    <p class="muted">A new puzzle arrives every midnight.</p>
+    <button class="btn btn-primary" type="button" data-close>Play</button>
+  </div>
+</dialog>
+
+<dialog class="sheet" id="statsSheet" aria-labelledby="statsTitle">
+  <div class="sheet-head">
+    <h2 id="statsTitle">Stats</h2>
+    <button class="icon-btn" type="button" data-close aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m4 4 10 10M14 4 4 14"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body" id="statsBody"></div>
+</dialog>
+
+<!-- Bump ?v= when these change, so browsers never pair this page with an old copy. -->
+<script src="puzzles.js?v=6"></script>
+<script src="lib.js?v=2"></script>
+<script src="../clock.js?v=2"></script>
+<script src="../pwa.js"></script>
+<script src="../next.js?v=8"></script>
+<script>
+(() => {
+  const L = window.SortedLib, D = window.SortedPuzzles;
+  const puzzles = L.parse(D.text);
+  const $ = id => document.getElementById(id);
+  const locale = navigator.language || 'en';
+  // Where the game lives on the web; shared results link here.
+  const SITE = `${location.hostname === 'appassets.androidplatform.net' ? 'https://dailies.matisseduffield.workers.dev' : location.origin}/sorted/index.html`;
+
+  const store = {
+    get(k) { try { return JSON.parse(localStorage.getItem('sorted.' + k)); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem('sorted.' + k, JSON.stringify(v)); } catch {} },
+  };
+
+  // ---- state ----
+  // days: { [day]: { guesses: [[four words]...], order: [the words as laid out],
+  // done, won } }.
+  const saved = store.get('state') || {};
+  const state = { days: saved.days && typeof saved.days === 'object' ? saved.days : {} };
+  const save = () => store.set('state', state);
+
+  let today = L.dayNumber(Clock.now(), D.epoch);
+  let puzzle, play;            // today's puzzle and its progress
+  let picked = [];             // the words selected for the next guess
+  let fresh = [];              // groups to bring in with a flourish, once
+  let busy = false;            // a right guess is still playing out
+  const calm = matchMedia('(prefers-reduced-motion: reduce)');
+
+  function load() {
+    puzzle = L.daily(today, puzzles);
+    play = state.days[today] || (state.days[today] = { guesses: [], order: L.deal(today, puzzle), done: false, won: false });
+    picked = [];
+  }
+
+  // ---- toast ----
+  let toastTimer = 0;
+  function say(text, tone = '', ms = 2200) {
+    clearTimeout(toastTimer);
+    const t = $('toast');
+    t.textContent = text;
+    t.classList.toggle('warn', tone === 'warn');
+    t.classList.toggle('show', !!text);
+    if (text && ms) toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+  }
+
+  // ---- drawing ----
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+  function drawSet(index, order) {
+    const g = puzzle[index];
+    const s = el('div', `set l${g.level}${fresh.includes(index) ? ' new' : ''}`);
+    s.style.setProperty('--i', order);
+    s.append(el('b', '', g.name), el('span', '', g.words.join(', ')));
+    return s;
+  }
+  function drawWord(word) {
+    const b = el('button', 'word', word);
+    b.type = 'button';
+    b.dataset.word = word;
+    b.style.setProperty('--len', Math.max(...word.split(' ').map(part => part.length)));
+    b.setAttribute('aria-pressed', String(picked.includes(word)));
+    return b;
+  }
+
+  function renderBoard() {
+    const { solved } = L.progress(play.guesses, puzzle);
+    // A lost game shows the groups it missed, easiest first.
+    const missed = play.done ? puzzle.map((g, i) => i).filter(i => !solved.includes(i)) : [];
+    const sets = [...solved, ...missed];
+    const left = play.done ? [] : play.order.filter(w => !solved.includes(L.groupOf(w, puzzle)));
+    const start = fresh.length ? sets.indexOf(fresh[0]) : 0;
+    $('board').replaceChildren(...sets.map((g, i) => drawSet(g, i - start)), ...left.map(drawWord));
+    fresh = [];
+    fitWords();
+  }
+
+  // Long words shrink until they fit, whatever the phone's text size.
+  function fitWords() {
+    for (const tile of $('board').querySelectorAll('.word')) {
+      tile.style.fontSize = '';
+      let size = parseFloat(getComputedStyle(tile).fontSize);
+      while (tile.scrollWidth > tile.clientWidth && size > 8) tile.style.fontSize = `${size -= .5}px`;
+    }
+  }
+
+  // Redraws, with every word that's still there sliding to its new place.
+  function slide(draw) {
+    const tiles = () => [...$('board').querySelectorAll('.word')];
+    const before = new Map(tiles().map(t => [t.dataset.word, t.getBoundingClientRect()]));
+    draw();
+    if (calm.matches) return;
+    for (const tile of tiles()) {
+      const from = before.get(tile.dataset.word), to = tile.getBoundingClientRect();
+      if (!from || (from.left === to.left && from.top === to.top)) continue;
+      tile.animate([{ transform: `translate(${from.left - to.left}px, ${from.top - to.top}px)` }, { transform: 'none' }], { duration: 280, easing: 'cubic-bezier(.2, .8, .3, 1)' });
+    }
+  }
+
+  function renderControls() {
+    const { mistakes } = L.progress(play.guesses, puzzle);
+    const dots = [];
+    for (let i = 0; i < L.MISTAKES; i++) dots.push(el('i', i < L.MISTAKES - mistakes ? '' : 'gone'));
+    $('dots').replaceChildren(...dots);
+    $('dots').setAttribute('aria-label', `${L.MISTAKES - mistakes} of ${L.MISTAKES}`);
+    showPicked();
+  }
+  function showPicked() {
+    $('checkBtn').disabled = picked.length !== L.SIZE;
+    $('clearBtn').disabled = !picked.length;
+  }
+
+  // The tiles fill the room there is, up to a point.
+  function fit() {
+    const stage = $('stage'), board = $('board');
+    const h = stage.clientHeight - 46, w = board.clientWidth;
+    const cell = Math.max(56, Math.min(84, Math.floor((h - 21) / 4)));
+    board.style.setProperty('--cell', cell + 'px');
+    board.style.setProperty('--w', (w - 21) / 4 + 'px');
+    const above = board.getBoundingClientRect().top - stage.parentElement.getBoundingClientRect().top;
+    $('toast').style.top = Math.max(0, above - 42) + 'px';
+    fitWords();
+  }
+
+  const dateOf = day => { const [y, m, d] = D.epoch.split('-').map(Number); return new Date(y, m - 1, d + day - 1); };
+  const dayFormat = new Intl.DateTimeFormat(locale, { weekday: 'short', day: 'numeric', month: 'short' });
+
+  const wonDays = () => Object.keys(state.days).filter(d => state.days[d].won).map(Number);
+
+  function renderResult() {
+    const { mistakes, solved } = L.progress(play.guesses, puzzle);
+    $('resTitle').textContent = play.won ? 'All sorted' : `${solved.length} of ${puzzle.length} sorted`;
+    const tag = $('resTag');
+    tag.textContent = play.won ? L.mistakeText(mistakes) : 'Out of mistakes';
+    tag.classList.toggle('good', play.won);
+    tag.classList.toggle('bad', !play.won);
+    showNext($('resNext'), 'sorted');
+    tickNext();
+  }
+
+  function tickNext() {
+    if (!play.done) return;
+    const now = Clock.now();
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const mins = Math.max(1, Math.ceil((midnight - now) / 60000));
+    const left = el('span');
+    left.append(el('b', '', String(L.streak(wonDays(), today))), ' day streak');
+    $('resFoot').replaceChildren(left, el('span', '', `Next puzzle in ${mins >= 60 ? `${Math.floor(mins / 60)} h ` : ''}${mins % 60} min`));
+  }
+
+  function render() {
+    $('meta').textContent = `No. ${today} · ${dayFormat.format(dateOf(today))}`;
+    $('play').hidden = play.done;
+    $('result').hidden = !play.done;
+    renderBoard();
+    renderControls();
+    if (play.done) renderResult();
+    fit();
+  }
+
+  // ---- stats ----
+  function renderStats() {
+    const days = Object.keys(state.days).map(Number).filter(d => state.days[d].done);
+    const body = $('statsBody');
+    if (!days.length) return body.replaceChildren(el('p', 'empty', 'Finish a puzzle to start your stats.'));
+    const won = wonDays();
+    const nums = el('div', 'numbers');
+    for (const [v, label] of [
+      [days.length, 'Played'],
+      [Math.round(won.length / days.length * 100) + '%', 'Won'],
+      [L.streak(won, today), 'Streak'],
+      [L.bestStreak(won), 'Best streak'],
+    ]) {
+      const n = el('p', 'num');
+      n.append(el('b', '', String(v)), el('span', '', label));
+      nums.append(n);
+    }
+    // How each game went: by mistakes if it was won, or lost.
+    const LABELS = ['None', '1', '2', '3', 'Lost'];
+    const slot = d => (state.days[d].won ? L.progress(state.days[d].guesses, L.daily(d, puzzles)).mistakes : L.MISTAKES);
+    const counts = Array(LABELS.length).fill(0);
+    for (const d of days) counts[slot(d)]++;
+    const max = Math.max(...counts, 1);
+    const dist = el('div', 'dist');
+    dist.append(el('p', 'dist-title', 'Mistakes'));
+    counts.forEach((c, i) => {
+      const row = el('div', 'bar-row');
+      const bar = el('div', 'bar', String(c));
+      bar.style.width = `${Math.max(8, c / max * 100)}%`;
+      if (days.includes(today) && slot(today) === i) bar.classList.add('today');
+      row.append(el('span', '', LABELS[i]), el('div'));
+      row.lastChild.append(bar);
+      dist.append(row);
+    });
+    body.replaceChildren(nums, dist);
+  }
+
+  // ---- sheets ----
+  function openSheet(id) {
+    if (id === 'statsSheet') renderStats();
+    const d = $(id);
+    if (!d.open) d.showModal();
+    tellBack();
+  }
+  for (const d of document.querySelectorAll('dialog.sheet')) {
+    d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-close]')) d.close(); });
+    d.addEventListener('close', tellBack);
+  }
+  const openDialog = () => document.querySelector('dialog.sheet[open]');
+
+  // ---- playing ----
+  function toggle(word) {
+    if (busy) return;
+    if (picked.includes(word)) picked = picked.filter(w => w !== word);
+    else if (picked.length < L.SIZE) picked.push(word);
+    else return;
+    haptic();
+    const tile = $('board').querySelector(`[data-word="${CSS.escape(word)}"]`);
+    tile.setAttribute('aria-pressed', String(picked.includes(word)));
+    showPicked();
+  }
+
+  function shake() {
+    for (const w of picked) {
+      const tile = $('board').querySelector(`[data-word="${CSS.escape(w)}"]`);
+      tile.classList.remove('bad');
+      void tile.offsetWidth;
+      tile.classList.add('bad');
+    }
+  }
+
+  function check() {
+    if (picked.length !== L.SIZE || play.done || busy) return;
+    if (L.tried(picked, play.guesses)) { shake(); return say('You’ve already tried those', 'warn'); }
+    const guess = [...picked];
+    const { group, near } = L.check(guess, puzzle);
+    play.guesses.push(guess);
+    const now = L.progress(play.guesses, puzzle);
+    if (group >= 0) {
+      fresh = [group];
+      say('');
+      haptic('tick');
+      if (now.done) finish(now);
+      save();
+      return settle(guess);
+    }
+    if (!now.done) {
+      haptic('tick');
+      shake();
+      say(near ? 'One away' : '');
+      save();
+      return renderControls();
+    }
+    finish(now);
+    save();
+    render();
+  }
+
+  // The four hop, then the group takes their place and the rest close up.
+  function settle(guess) {
+    picked = [];
+    if (calm.matches) return render();
+    busy = true;
+    guess.forEach((w, i) => {
+      const tile = $('board').querySelector(`[data-word="${CSS.escape(w)}"]`);
+      tile.style.setProperty('--i', i);
+      tile.classList.add('hop');
+    });
+    showPicked();
+    setTimeout(() => { busy = false; slide(render); }, 500);
+  }
+
+  function finish({ won, solved }) {
+    play.done = true;
+    play.won = won;
+    picked = [];
+    // Losing brings in whatever was left, one after another.
+    if (!won) { fresh = puzzle.map((g, i) => i).filter(i => !solved.includes(i)); say(''); }
+    haptic('tick');
+    report();
+  }
+
+  // Today's result, for the hub's home screen.
+  function report() {
+    // Finished in the moments after midnight: that day's over, so the hub's new day stays open.
+    if (L.dayNumber(Clock.now(), D.epoch) !== today) return;
+    const rec = state.days[today];
+    if (!rec || !rec.done) return;
+    const { mistakes, solved } = L.progress(rec.guesses, puzzle);
+    const text = rec.won ? L.mistakeText(mistakes) : `${solved.length} of ${puzzle.length} sorted`;
+    try { localStorage.setItem('hub.sorted', JSON.stringify({ date: Clock.now().toDateString(), text })); } catch {}
+  }
+
+  function share() {
+    const text = `${L.shareText(today, play.guesses, puzzle)}\n${SITE}`;
+    if (app) return toApp({ type: 'share', title: 'Sorted', text });
+    if (navigator.share) return navigator.share({ text }).catch(() => {});
+    navigator.clipboard.writeText(text).then(() => say('Copied to share'), () => {});
+  }
+
+  $('board').addEventListener('click', e => {
+    const tile = e.target.closest('.word');
+    if (tile) toggle(tile.dataset.word);
+  });
+  $('shuffleBtn').addEventListener('click', () => {
+    if (busy) return;
+    play.order = L.shuffled(play.order);
+    save(); haptic(); slide(renderBoard);
+  });
+  $('clearBtn').addEventListener('click', () => {
+    if (busy) return;
+    picked = [];
+    haptic(); renderBoard(); showPicked();
+  });
+  $('checkBtn').addEventListener('click', check);
+  $('resShare').addEventListener('click', share);
+  $('resStats').addEventListener('click', () => openSheet('statsSheet'));
+  $('helpBtn').addEventListener('click', () => openSheet('helpSheet'));
+  $('statsBtn').addEventListener('click', () => openSheet('statsSheet'));
+
+  // Android Back: close a sheet. After that the app goes back to the hub.
+  window.ladderBack = () => {
+    const d = openDialog();
+    if (d) d.close();
+    return !!d;
+  };
+  function tellBack() { toApp({ type: 'back', enabled: !!openDialog() }); }
+
+  addEventListener('resize', fit);
+  // A new day while the game sits open (or comes back from the background).
+  function checkDay() {
+    const now = L.dayNumber(Clock.now(), D.epoch);
+    if (now !== today) {
+      // A daily in hand at midnight is finished first; it still counts for its day.
+      if (play.guesses.length && !play.done && Clock.playing()) return;
+      today = now;
+      load();
+      render();
+    } else if (play.done) tickNext();
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkDay(); });
+  addEventListener('clock', checkDay);
+  setInterval(() => { if (!document.hidden) checkDay(); }, 30000);
+
+  // ---- Android app bridge (absent in a browser) ----
+  const app = window.ladderApp || null;
+  function toApp(msg) {
+    if (!app) return;
+    try { app.postMessage(JSON.stringify(msg)); } catch {}
+  }
+  function haptic(kind = 'tap') { toApp({ type: 'haptic', kind }); }
+
+  // ---- boot ----
+  load();
+  report();
+  render();
+  tellBack();
+  if (document.fonts) document.fonts.ready.then(fitWords);
+  // First visit: how to play, once.
+  if (!store.get('seenHelp')) { store.set('seenHelp', true); openSheet('helpSheet'); }
+})();
+</script>
+</body>
+</html>
